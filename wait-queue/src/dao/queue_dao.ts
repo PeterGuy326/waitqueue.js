@@ -1,8 +1,6 @@
 import { DataTypes, Model, ModelAttributes, ModelOptions } from 'sequelize'
 import { daoMysql } from '../lib/conf'
 
-const sequelize = daoMysql.getInstance()
-
 const attributes: ModelAttributes = {
 	id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true, comment: '队列 id' },
 	namespace: { type: DataTypes.STRING, primaryKey: true, comment: '服务命名空间' },
@@ -34,6 +32,6 @@ interface QueueAttributes extends Model {
 	updatedTime: string
 }
 
-const queueDao = sequelize.define<QueueAttributes>('queue', attributes, defineOptions)
+const QueueDao = daoMysql.getInstance().define<QueueAttributes>('queue', attributes, defineOptions)
 
-export { QueueAttributes, queueDao }
+export { QueueAttributes, QueueDao }

@@ -1,11 +1,15 @@
 import { Context } from 'koa'
 import { Service } from '../lib/service'
 import * as QueueServiceType from '../../type/service/queue'
-import { QueueAttributes, queueDao } from '../dao/queue_dao'
+import { QueueAttributes, QueueDao } from '../dao/queue_dao'
+import { ModelCtor } from 'sequelize'
+import { Timer } from '../lib/timer'
 
 export class QueueService extends Service {
+	private queueDao: ModelCtor<QueueAttributes>
 	constructor(ctx: Context) {
 		super(ctx)
+		this.queueDao = QueueDao
 	}
 
 	async newQueue(params: QueueServiceType.NewQueueKeyReq): Promise<QueueServiceType.NewQueueKeyRes> {
@@ -20,7 +24,7 @@ export class QueueService extends Service {
 			namespace,
 		} = params
 
-		const queueItem = await queueDao.findOne({
+		const queueItem = await this.queueDao.findOne({
 			attributes: ['id'],
 			where: {
 				url: hookUrl,
@@ -40,17 +44,18 @@ export class QueueService extends Service {
 		if (queueItem?.id) {
 			// 更新
 			queueId = queueItem.id
-			await queueDao.update(dbBody, {
+			await this.queueDao.update(dbBody, {
 				where: {
 					id: queueItem.id,
 				},
 			})
 		} else {
-			const { id } = await queueDao.create(dbBody)
+			const { id } = await this.queueDao.create(dbBody)
 			queueId = id
 		}
 
 		// 初始化 Timer
+		new Timer(this.ctx).initializeQueueList([queueId])
 
 		return { isOk: true }
 	}

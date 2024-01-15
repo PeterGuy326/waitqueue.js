@@ -1,12 +1,11 @@
-type AddTaskReq<T> = {
-    url: string, // 完整回调路径
-    data: T // 回调接口参数
+type AddTaskReq = {
+	hookUrl: string // 完整回调路径
+	taskId: string
+	namespace: string
 }
 
 type AddTaskResp = {
-    taskId: string
+	isOk: boolean
 }
 
-export {
-    AddTaskReq
-}
+export { AddTaskReq, AddTaskResp }

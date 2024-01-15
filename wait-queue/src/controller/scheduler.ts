@@ -10,8 +10,7 @@ export class SchedulerController extends Controller {
         this.schedulerService = new SchedulerService(ctx)
     }
 
-    async addTask<T>(params: SchedulerControllerType.AddTaskReq<T>) {
-        const { url, data } = params;
-        return await this.schedulerService.addTask(url, data)
+    async addTask(params: SchedulerControllerType.AddTaskReq) {
+        return await this.schedulerService.addTask(params)
     }
 }
