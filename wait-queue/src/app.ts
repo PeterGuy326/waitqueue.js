@@ -2,10 +2,13 @@ import Koa from 'koa'
 import Router from 'koa-router'
 import { schedulerRoutes } from './routes/scheduler'
 import pino from 'koa-pino-logger'
+import { cronInit } from './middleware/timer'
 
 const app = new Koa()
 
 app.use(pino)
+
+app.use((ctx, next) => cronInit(ctx, next))
 
 const router = new Router({
 	prefix: 'waitqueue',

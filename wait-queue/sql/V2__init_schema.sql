@@ -1,3 +1,4 @@
+CREATE SCHEMA waitqueue;
 CREATE TABLE IF NOT EXISTS `queue` (
     `id` int(11) NOT NULL AUTO_INCREMENT COMMENT '自增 id',
     `namespace` varchar(36) NOT NULL DEFAULT '' COMMENT '命名空间',

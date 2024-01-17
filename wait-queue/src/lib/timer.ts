@@ -29,6 +29,7 @@ export class Timer extends Service {
 	}
 
 	async initializeQueueList(queueIds: number[] = []) {
+		console.log(11111111111)
 		const where: WhereOptions<QueueAttributes> = {
 			...(queueIds.length ? { id: queueIds } : {}),
 		}
