@@ -4,10 +4,19 @@ waitqueue.js 的轻量实时运维控制台。它直接读取后端队列配置�
 
 ![Control Room](../docs/control-room.jpg)
 
+界面沿用 DWS Backend 的开发者工作台语言：浅色数据目录、紧凑顶栏、黑色 Workbench 横幅、1px 深色描边和薄荷绿运行状态。所有控件均由语义化 HTML 与局部 CSS 实现，不依赖 UI 组件库。
+
+<details>
+<summary>移动端预览</summary>
+
+<p align="center"><img src="../docs/control-room-mobile.jpg" alt="WaitQueue 移动端控制台" width="390"></p>
+
+</details>
+
 ## 页面能力
 
 - 汇总队列数、waiting、running、capacity 和实时利用率；
-- 用 Waiting → Running → Released 轨道表达调度状态；
+- 通过队列目录、Workbench 摘要和容量条表达调度状态；
 - 展示各队列回调、并发占用和 run/check/expire cron；
 - 搜索队列，注册或更新队列，提交 taskId；
 - 每 10 秒自动刷新，页面切到后台时暂停；
@@ -67,14 +76,14 @@ Browser
 
 ## 技术与目录
 
-运行时只保留四个直接依赖：Next.js、React、React DOM 和 Arco Design。
+运行时只保留三个直接依赖：Next.js、React 和 React DOM。
 
 ```text
 admin-dashboard/
 ├── src/pages/_app.tsx             # 全局样式与页面入口
 ├── src/pages/index.tsx            # 数据读取、交互与控制室页面
 ├── src/style/global.css           # 设计 token、主题与基础样式
-├── src/style/dashboard.module.css # 页面布局、轨道和响应式样式
+├── src/style/dashboard.module.css # 工作台布局、状态组件和响应式样式
 ├── next.config.js                 # API 同源代理
 └── .env.example                   # 后端地址示例
 ```

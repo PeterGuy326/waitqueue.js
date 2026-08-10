@@ -11,10 +11,9 @@
     "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start -p 3001",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
-    "@arco-design/web-react": "^2.66.16",
     "next": "16.3.0",
     "react": "19.2.0",
     "react-dom": "19.2.0"

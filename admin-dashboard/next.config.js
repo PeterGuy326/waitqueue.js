@@ -4,6 +4,8 @@ const apiOrigin = (process.env.WAITQUEUE_API_URL || 'http://127.0.0.1:3000').rep
 module.exports = {
   reactStrictMode: true,
   poweredByHeader: false,
+  agentRules: false,
+  allowedDevOrigins: ['127.0.0.1'],
   async rewrites() {
     return [
       {

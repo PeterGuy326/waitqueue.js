@@ -49,7 +49,7 @@
 │   ├── src/service/            # 队列、任务和控制面服务
 │   ├── src/lib/                # cron、领取、回调与释放逻辑
 │   └── test/                   # Node.js 契约测试
-├── admin-dashboard/            # Next.js + Arco 实时控制台
+├── admin-dashboard/            # Next.js + React 轻量实时控制台
 ├── examples/mock-hook.mjs      # 可直接运行的最小回调服务
 └── docs/                       # 控制台预览图
 ```
@@ -363,7 +363,7 @@ curl -X POST http://127.0.0.1:3000/waitqueue/scheduler/addTask \
 
 - 10 秒自动刷新，页面不可见时暂停轮询；
 - 队列总数、waiting、running、capacity 与利用率；
-- Waiting → Running → Released 调度轨道；
+- 左侧实时队列目录、Workbench 摘要与并发槽位视图；
 - 队列搜索、并发占用和三类 cron 展示；
 - 注册/更新队列、向指定队列提交任务；
 - 浅色/深色主题与移动端布局；
