@@ -1,0 +1,14 @@
+{
+  "name": "waitqueue.js",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@8.15.9",
+  "engines": {
+    "node": ">=20.9"
+  },
+  "scripts": {
+    "install:all": "corepack pnpm --dir wait-queue install --frozen-lockfile && corepack pnpm --dir admin-dashboard install --frozen-lockfile",
+    "build": "corepack pnpm --dir wait-queue build && corepack pnpm --dir admin-dashboard build",
+    "test": "corepack pnpm --dir wait-queue test && corepack pnpm --dir admin-dashboard typecheck"
+  }
+}

@@ -1,17 +1,14 @@
-import Router from 'koa-router'
-import { ContextExtensional } from '../../type/middleware/context'
+import Router from '@koa/router'
 import response from '../utils/response'
-import * as SchedulerControllerType from '../../type/controller/scheduler'
+import { SchedulerService } from '../service/scheduler'
+import { validateAddTaskInput } from '../utils/validation'
 
-const schedulerRoutes = new Router<{}, ContextExtensional>()
+const schedulerRoutes = new Router()
 
 schedulerRoutes.post('/addTask', async (ctx) => {
-	try {
-		const res = await ctx.schedulerController.addTask(ctx.request.body as SchedulerControllerType.AddTaskReq)
-		response.success(ctx, res)
-	} catch (err) {
-		response.error(ctx, err.message)
-	}
+	const input = validateAddTaskInput(ctx.request.body)
+	const result = await new SchedulerService(ctx).addTask(input)
+	response.success(ctx, result)
 })
 
 export { schedulerRoutes }

@@ -1,18 +1,14 @@
-import Router from 'koa-router'
-import * as QueueControllerType from '../../type/controller/queue'
-import { ContextExtensional } from '../../type/middleware/context'
+import Router from '@koa/router'
+import { QueueService } from '../service/queue'
 import response from '../utils/response'
+import { validateNewQueueInput } from '../utils/validation'
 
-const queueRoutes = new Router<{}, ContextExtensional>()
+const queueRoutes = new Router()
 
 queueRoutes.post('/newQueue', async (ctx) => {
-	console.log(1111111)
-	try {
-		const res = await ctx.queueController.newQueue(ctx.request.body as QueueControllerType.NewQueueKeyReq)
-		response.success(ctx, res)
-	} catch (err) {
-		response.error(ctx, err.message)
-	}
+	const input = validateNewQueueInput(ctx.request.body)
+	const result = await new QueueService(ctx).newQueue(input)
+	response.success(ctx, result)
 })
 
 export { queueRoutes }
