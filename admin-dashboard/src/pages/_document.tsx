@@ -31,7 +31,14 @@ export default class WaitQueueDocument extends Document {
   render() {
     return (
       <Html lang="zh-CN">
-        <Head />
+        <Head>
+          <script
+            id="waitqueue-theme-bootstrap"
+            dangerouslySetInnerHTML={{
+              __html: `(function(){try{var saved=localStorage.getItem('waitqueue-warm-theme')||localStorage.getItem('waitqueue-theme');var mode=saved==='dark'||saved==='light'?saved:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.theme=mode;document.documentElement.dataset.themeReady=mode==='dark'?'false':'true';document.documentElement.style.colorScheme=mode;}catch(error){}})();`,
+            }}
+          />
+        </Head>
         <body>
           <Main />
           <NextScript />

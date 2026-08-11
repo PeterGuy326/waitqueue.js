@@ -644,10 +644,10 @@ curl -X POST http://127.0.0.1:3000/waitqueue/admin/deadLetters/replay \
 控制台位于 `admin-dashboard/`，不是 mock 模板，也不是后端启动依赖。它提供：
 
 - 10 秒自动刷新，页面不可见时暂停轮询；
-- 基于 Ant Design 6 的紧凑工作台、浅/深主题和移动端布局；
+- 基于 Ant Design 6、对齐 fullstack-ai-infra Warm Agent Workspace 的浅/深主题与移动端布局；
 - 真实 waiting、running、retrying、DLQ、最老等待与容量利用率；
 - 当前进程 callback、claim、recovery 计数及起始时间；
-- 左侧实时队列目录、Workbench 摘要与并发槽位视图；
+- 72px 模块栏、256px 队列上下文目录、60px 顶栏与独立队列详情页；
 - 队列搜索、并发占用和三类 cron 展示；
 - 注册/更新队列、向指定队列提交任务、分页查询与 generation-safe DLQ 重放；
 - 离线、过期、加载和空数据状态。

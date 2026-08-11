@@ -132,6 +132,12 @@ jobs:
           set -Eeuo pipefail
           corepack pnpm --dir admin-dashboard typecheck
 
+      - name: Check dashboard design contract
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          corepack pnpm --dir admin-dashboard check:design
+
   production-build:
     name: Production build
     runs-on: ubuntu-24.04
@@ -355,7 +361,7 @@ jobs:
 
           dashboard_html="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 2 \
             "http://127.0.0.1:${DASHBOARD_PORT}/")"
-          grep --fixed-strings --quiet 'WaitQueue Workbench' <<< "$dashboard_html"
+          grep --fixed-strings --quiet 'data-product="waitqueue-console"' <<< "$dashboard_html"
           node -e '
             let html = "";
             process.stdin.setEncoding("utf8");
