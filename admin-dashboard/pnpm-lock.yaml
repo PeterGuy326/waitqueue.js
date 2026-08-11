@@ -8,12 +8,15 @@ dependencies:
   '@ant-design/cssinjs':
     specifier: 2.1.2
     version: 2.1.2(react-dom@19.2.0)(react@19.2.0)
-  '@ant-design/icons':
-    specifier: 6.3.2
-    version: 6.3.2(react-dom@19.2.0)(react@19.2.0)
+  '@fontsource/inter':
+    specifier: 5.3.0
+    version: 5.3.0
   antd:
     specifier: 6.6.0
     version: 6.6.0(react-dom@19.2.0)(react@19.2.0)
+  lucide-react:
+    specifier: 0.468.0
+    version: 0.468.0(react@19.2.0)
   next:
     specifier: 16.3.0
     version: 16.3.0(@types/node@20.19.43)(react-dom@19.2.0)(react@19.2.0)
@@ -137,6 +140,10 @@ packages:
 
   /@emotion/unitless@0.7.5:
     resolution: {integrity: sha512-OWORNpfjMsSSUBVrRBVGECkhWcULOAJz9ZW8uK9qgxD+87M7jHRcvh/A96XXNhXTLmKcoYSQtBEX7lHMO7YRwg==}
+    dev: false
+
+  /@fontsource/inter@5.3.0:
+    resolution: {integrity: sha512-RofMylZmjlJEfELXeNHFWBRcSs75rGU/6bV2S2jfnvv/3rPXPGe0LgUJTklcHZ9lM4OZmAVFhcJPnACfb91A3g==}
     dev: false
 
   /@img/colour@1.1.0:
@@ -1187,6 +1194,14 @@ packages:
     resolution: {integrity: sha512-SzoRg7ux5DWTII9J2qkrZrqV1gt+rTaoufMxEzXbS26Uid0NwaJd123HcoB80TgubEppxxIGdNxCx50fEoEWQA==}
     dependencies:
       string-convert: 0.2.1
+    dev: false
+
+  /lucide-react@0.468.0(react@19.2.0):
+    resolution: {integrity: sha512-6koYRhnM2N0GGZIdXzSeiNwguv1gt/FAjZOiPl76roBi3xKEXa4WmfpxgQwTTL4KipXjefrnf3oV4IsYhi4JFA==}
+    peerDependencies:
+      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0-rc
+    dependencies:
+      react: 19.2.0
     dev: false
 
   /nanoid@3.3.18:

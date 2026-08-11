@@ -1,59 +1,137 @@
-:root {
+/*
+ * WaitQueue semantic adapter for fullstack-ai-infra/design-system.
+ * Visual contract pinned to commit 9d048faaabe0429a6a8720bfbb31418544237b6b.
+ * Ant Design consumes the same roles from control-room-theme.tsx.
+ */
+:root,
+:root[data-theme='light'] {
   color-scheme: light;
-  --paper: #f7f7f6;
-  --panel: #ffffff;
-  --wash: #f3f3f2;
-  --ink: #17181b;
-  --text: #202124;
-  --muted: #686b70;
-  --faint: #72757a;
-  --line: #dedfdf;
-  --line-strong: #babdc1;
-  --line-ink: #292a2d;
-  --accent: #00c98b;
-  --accent-hover: #16d99c;
-  --accent-strong: #007c57;
-  --accent-soft: #ddf8ee;
-  --accent-ghost: #f1fcf8;
-  --warning: #aa5119;
-  --warning-soft: #fff0e3;
-  --danger: #c83a3a;
-  --danger-soft: #fff0f0;
-  --font-sans: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  --font-display: "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
-  --font-mono: "SFMono-Regular", "Cascadia Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  --ui-canvas: #f5f1e8;
+  --ui-canvas-subtle: #eee9df;
+  --ui-navigation: #e6e1d7;
+  --ui-surface: #fbf9f4;
+  --ui-surface-raised: #fffdf8;
+  --ui-surface-inset: #f0ece3;
+  --ui-foreground: #282925;
+  --ui-foreground-muted: #5f615b;
+  --ui-foreground-subtle: #6c6e67;
+  --ui-border: #d9d4ca;
+  --ui-border-strong: #c6c1b7;
+  --ui-primary: #5f735e;
+  --ui-primary-hover: #50644f;
+  --ui-primary-foreground: #fbfdf8;
+  --ui-primary-soft: #e2e9df;
+  --ui-ai: #7568a8;
+  --ui-ai-strong: #695c99;
+  --ui-ai-hover: #675a99;
+  --ui-ai-foreground: #fbfaff;
+  --ui-ai-soft: #ebe7f6;
+  --ui-info: #476e84;
+  --ui-info-soft: #e1edf2;
+  --ui-success: #537153;
+  --ui-success-strong: #4c694c;
+  --ui-success-soft: #e0eadf;
+  --ui-warning: #8b672b;
+  --ui-warning-strong: #805c20;
+  --ui-warning-soft: #f4e8cf;
+  --ui-danger: #9a4e45;
+  --ui-danger-soft: #f4dfdb;
+  --ui-overlay: rgb(40 41 37 / 42%);
+  --ui-focus: #71866f;
+  --ui-selection: #dce6d9;
+  --ui-font-sans: Inter, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ui-font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  --ui-text-xs: 0.75rem;
+  --ui-text-sm: 0.8125rem;
+  --ui-text-base: 0.9375rem;
+  --ui-text-lg: 1.0625rem;
+  --ui-text-xl: 1.25rem;
+  --ui-text-2xl: 1.625rem;
+  --ui-leading-tight: 1.25;
+  --ui-leading-normal: 1.55;
+  --ui-space-1: 0.25rem;
+  --ui-space-2: 0.5rem;
+  --ui-space-3: 0.75rem;
+  --ui-space-4: 1rem;
+  --ui-space-5: 1.25rem;
+  --ui-space-6: 1.5rem;
+  --ui-space-8: 2rem;
+  --ui-space-10: 2.5rem;
+  --ui-space-12: 3rem;
+  --ui-radius-sm: 0.375rem;
+  --ui-radius-md: 0.625rem;
+  --ui-radius-lg: 0.875rem;
+  --ui-radius-xl: 1.125rem;
+  --ui-radius-full: 9999px;
+  --ui-shadow-sm: 0 1px 2px rgb(40 41 37 / 6%);
+  --ui-shadow-md: 0 10px 30px rgb(40 41 37 / 9%), 0 2px 8px rgb(40 41 37 / 5%);
+  --ui-shadow-lg: 0 24px 64px rgb(40 41 37 / 16%), 0 4px 12px rgb(40 41 37 / 7%);
+  --ui-duration-fast: 120ms;
+  --ui-duration-normal: 180ms;
+  --ui-ease: cubic-bezier(0.2, 0, 0, 1);
+  --ui-rail-width: 72px;
+  --ui-sidebar-width: 256px;
+  --ui-topbar-height: 60px;
 }
 
-:root[data-theme="dark"] {
+:root[data-theme='dark'] {
   color-scheme: dark;
-  --paper: #131416;
-  --panel: #1b1c1f;
-  --wash: #232428;
-  --ink: #101113;
-  --text: #f2f3f3;
-  --muted: #afb1b5;
-  --faint: #85898f;
-  --line: #34363a;
-  --line-strong: #51545a;
-  --line-ink: #65686e;
-  --accent-strong: #32d9a4;
-  --accent-soft: #123d30;
-  --accent-ghost: #183229;
-  --warning: #f2a366;
-  --warning-soft: #432b1b;
-  --danger: #ff7b7b;
-  --danger-soft: #402225;
+  --ui-canvas: #1e201d;
+  --ui-canvas-subtle: #242622;
+  --ui-navigation: #292b27;
+  --ui-surface: #272925;
+  --ui-surface-raised: #2e302c;
+  --ui-surface-inset: #222420;
+  --ui-foreground: #efede7;
+  --ui-foreground-muted: #b6b5ad;
+  --ui-foreground-subtle: #93948c;
+  --ui-border: #3f423c;
+  --ui-border-strong: #555950;
+  --ui-primary: #a1b69d;
+  --ui-primary-hover: #b2c6ae;
+  --ui-primary-foreground: #1c251c;
+  --ui-primary-soft: #344035;
+  --ui-ai: #b9addc;
+  --ui-ai-strong: #b9addc;
+  --ui-ai-hover: #c8bde6;
+  --ui-ai-foreground: #251f36;
+  --ui-ai-soft: #3b354d;
+  --ui-info: #8eb6ca;
+  --ui-info-soft: #2c4049;
+  --ui-success: #9dba9a;
+  --ui-success-strong: #9dba9a;
+  --ui-success-soft: #314132;
+  --ui-warning: #d4b069;
+  --ui-warning-strong: #d4b069;
+  --ui-warning-soft: #493d28;
+  --ui-danger: #d99488;
+  --ui-danger-soft: #4d302d;
+  --ui-overlay: rgb(0 0 0 / 62%);
+  --ui-focus: #acc2a8;
+  --ui-selection: #3c4a3c;
+  --ui-shadow-sm: 0 1px 2px rgb(0 0 0 / 24%);
+  --ui-shadow-md: 0 10px 30px rgb(0 0 0 / 28%), 0 2px 8px rgb(0 0 0 / 20%);
+  --ui-shadow-lg: 0 24px 64px rgb(0 0 0 / 38%), 0 4px 12px rgb(0 0 0 / 24%);
 }
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
 html {
+  min-width: 320px;
+  min-height: 100%;
+  color: var(--ui-foreground);
+  background: var(--ui-canvas);
+  font-family: var(--ui-font-sans);
+  font-size: 16px;
   scroll-behavior: smooth;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
-html,
 body,
 #__next {
   min-height: 100%;
@@ -61,33 +139,56 @@ body,
 }
 
 body {
-  color: var(--text);
-  background: var(--paper);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+  color: var(--ui-foreground);
+  background: var(--ui-canvas);
+}
+
+/* The server renders Ant's light variables. Keep a saved/system dark first frame
+ * on the dark canvas until ConfigProvider has committed the matching variables. */
+:root[data-theme='dark'][data-theme-ready='false'] #__next {
+  visibility: hidden;
 }
 
 button,
 input,
-select {
+select,
+textarea {
+  color: inherit;
   font: inherit;
 }
 
-button:focus-visible,
-input:focus-visible,
-select:focus-visible,
-a:focus-visible {
-  outline: 2px solid var(--accent-strong);
+::selection {
+  background: var(--ui-selection);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ui-focus);
   outline-offset: 2px;
 }
 
-::selection {
-  color: #07110d;
-  background: var(--accent);
+@keyframes ui-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ui-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :root {
+    --ui-duration-fast: 0ms;
+    --ui-duration-normal: 0ms;
+  }
+
   html {
     scroll-behavior: auto;
   }

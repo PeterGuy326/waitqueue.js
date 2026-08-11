@@ -1,19 +1,21 @@
-# WaitQueue Workbench
+# WaitQueue 队列运行中心
 
 waitqueue.js 的轻量实时运维控制台。它直接读取后端队列配置、Redis 运行快照和当前进程计数，不使用 mock 数据，也不展示当前系统无法证明的历史趋势。
 
-界面沿用 DWS Backend 的开发者工作台语言：数据目录、紧凑顶栏、黑色 Workbench 横幅、1px 深色描边和薄荷绿运行状态。交互控件使用 Ant Design 6，布局与视觉 token 保持项目自身风格，没有引入 Ant Design Pro、图表运行时或额外状态库。
+界面遵循 [fullstack-ai-infra/design-system@9d048faa](https://github.com/fullstack-ai-infra/design-system/tree/9d048faaabe0429a6a8720bfbb31418544237b6b) 的 **Warm Agent Workspace** 视觉契约：暖象牙画布、stone 导航、paper 表面、charcoal 文字和 sage 主操作。布局采用 72px 模块栏、256px 队列上下文栏和 60px 顶栏；表格、表单、抽屉、弹窗及反馈继续由 Ant Design 6 提供。
+
+设计系统当前尚未发布稳定 npm 版本，且其 React 18 peer contract 与本项目 React 19 不兼容，因此这里使用轻量 semantic adapter 将上游 token 映射到 Ant Design `ConfigProvider`，不引入重复的 Radix、Tailwind 或状态管理运行时。待设计系统正式支持 React 19 后，可直接切换到包依赖。
 
 ## 页面怎么用
 
-顶部四个工作区分别承担不同职责：
+左侧模块栏的四个页面分别承担不同职责：
 
-1. **总览**：先看 backlog、最老 waiting、Retry、DLQ、容量利用率，以及本进程 callback/claim/recovery 计数。计数的起始时间显示在卡片底部，服务重启后会归零。
-2. **队列**：在左侧目录搜索 namespace、回调 origin 或 queue ID；点选队列后查看运行槽位、Cron 和真实运行状态，也可提交 taskId 或更新配置。
+1. **总览**：先看等待任务、最老等待、运行容量、Retry、DLQ，以及本进程 callback/claim/recovery 计数。计数的起始时间显示在卡片底部，服务重启后会归零。
+2. **队列**：在上下文目录搜索 namespace、回调 origin 或 queue ID；点选队列后查看运行槽位、Cron 和真实运行状态，也可提交 taskId 或更新配置。
 3. **死信**：选择队列后分页查看 DLQ；重放前必须二次确认，后端用 `entryId` 校验 generation，避免把已更新的旧记录误重放。
 4. **诊断**：分别查看进程 liveness、MySQL/Redis readiness，并核对 Prometheus 抓取契约。
 
-页面每 10 秒自动刷新，浏览器切到后台时暂停；手动刷新会同时更新队列快照和健康状态。顶栏的 `ONLINE` 只有在 liveness 与 readiness 都成功时才出现，依赖异常会明确显示为 `DEGRADED`。桌面端使用表格与固定队列目录，窄屏切换为卡片、抽屉目录和底部视图导航；浅色/深色主题共用同一套 Ant Design token 状态。
+页面每 10 秒自动刷新，浏览器切到后台时暂停；手动刷新会同时更新队列快照和健康状态。顶栏只有在 liveness 与 readiness 都成功时才显示“服务在线”，依赖异常会显示“依赖异常”。桌面端使用模块栏、固定队列目录和表格，窄屏隐藏目录并通过抽屉选择队列，表格自动切换为卡片；浅色/深色主题共用同一套语义 token。
 
 当前没有任务历史存储，因此页面不会展示吞吐趋势、成功率、平均耗时或任务明细。
 
@@ -64,6 +66,7 @@ DASHBOARD_ALLOWED_HOSTS=127.0.0.1,localhost,[::1]
 
 ```bash
 corepack pnpm --dir admin-dashboard typecheck
+corepack pnpm --dir admin-dashboard check:design
 corepack pnpm --dir admin-dashboard build
 corepack pnpm --dir admin-dashboard start
 ```
@@ -101,17 +104,17 @@ Browser
 
 ## 技术与目录
 
-运行时直接依赖只有 Next.js、React、Ant Design、图标与其 SSR 样式运行时；没有 Ant Design Pro、Redux、Axios、Mock.js 或图表库。Pages Router 使用 `_document.tsx` 提取 Ant Design CSS-in-JS 样式，避免首屏闪烁。Next 16 的开发与生产构建显式使用 Webpack，以确保 Ant Design 与提取器共享同一个样式上下文；CI 会检查产物中存在真实 Ant 组件规则，而不只检查空的 style 标签。
+运行时直接依赖只有 Next.js、React、Ant Design、Lucide 图标与 Ant SSR 样式运行时；没有 Ant Design Pro、Redux、Axios、Mock.js、Tailwind、Radix 或图表库。Lucide 与设计系统的图标契约一致，并按组件 tree-shaking。Pages Router 使用 `_document.tsx` 提取 Ant Design CSS-in-JS 样式，避免首屏闪烁。Next 16 的开发与生产构建显式使用 Webpack，以确保 Ant Design 与提取器共享同一个样式上下文；CI 会检查产物中存在真实 Ant 组件规则，而不只检查空的 style 标签。
 
 ```text
 admin-dashboard/
 ├── src/pages/_app.tsx             # 全局样式与主题入口
 ├── src/pages/_document.tsx        # Ant Design 服务端样式提取
-├── src/pages/index.tsx            # 数据读取、交互与控制室页面
+├── src/pages/index.tsx            # 数据读取、交互与四个运行页面
 ├── src/pages/api/waitqueue/       # 运行时白名单代理与 token 注入
-├── src/style/global.css           # 设计 token、主题与基础样式
-├── src/style/dashboard.module.css # 工作台布局、状态组件和响应式样式
-├── src/theme/                      # Ant Design token 与浅/深主题状态
+├── src/style/global.css           # design-system 语义适配与基础样式
+├── src/style/dashboard.module.css # Warm Queue Console 布局与响应式样式
+├── src/theme/                      # 语义 token 到 Ant Design 的映射
 ├── next.config.js                 # API 同源代理
 └── .env.example                   # 后端地址示例
 ```
