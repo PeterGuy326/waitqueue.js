@@ -2,6 +2,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 
 const { TaskManager } = require('../dist/lib/task_manager.js')
+const { WaitQueueMetrics } = require('../dist/observability/metrics.js')
 
 function createContext() {
 	return {
@@ -31,7 +32,7 @@ function createStore(overrides = {}) {
 	}
 }
 
-function createManager(taskRunningCount, taskStore, taskRunner) {
+function createManager(taskRunningCount, taskStore, taskRunner, metrics) {
 	return new TaskManager(
 		createContext(),
 		7,
@@ -41,7 +42,7 @@ function createManager(taskRunningCount, taskStore, taskRunner) {
 		'waiting',
 		taskRunningCount,
 		undefined,
-		{ taskStore, taskRunner }
+		{ taskStore, taskRunner, metrics }
 	)
 }
 
@@ -174,4 +175,44 @@ test('expire releases only IDs matched to the acknowledged snapshot', async () =
 	assert.deepEqual(releaseCalls, [
 		{ snapshot: { 'task-1': 'ack:claim-1' }, taskIds: ['task-1', 'task-2'] },
 	])
+})
+
+test('claim, recovery, promotion, acknowledgement, and retry transitions increment bounded counters', async () => {
+	const metrics = new WaitQueueMetrics()
+	const successfulClaim = { taskId: 'sensitive-success-id', claimToken: 'pending:success' }
+	const failedClaim = { taskId: 'sensitive-failure-id', claimToken: 'pending:failure' }
+	const taskStore = createStore({
+		async claim() {
+			return {
+				claims: [successfulClaim, failedClaim],
+				recovered: 2,
+				promoted: 1,
+				deadLettered: 1,
+			}
+		},
+		async acknowledge() {
+			return true
+		},
+		async fail() {
+			return { outcome: 'retry', retryCount: 1, dueAt: 2000 }
+		},
+	})
+	const taskRunner = {
+		async run(taskId) {
+			if (taskId === failedClaim.taskId) throw new Error('callback failed')
+		},
+	}
+
+	await createManager(2, taskStore, taskRunner, metrics).runTask()
+	const rendered = metrics.render([])
+
+	assert.match(rendered, /waitqueue_claim_transitions_total\{queue_id="7",outcome="claimed"\} 2/)
+	assert.match(rendered, /waitqueue_claim_transitions_total\{queue_id="7",outcome="recovered"\} 2/)
+	assert.match(rendered, /waitqueue_claim_transitions_total\{queue_id="7",outcome="acknowledged"\} 1/)
+	assert.match(rendered, /waitqueue_retry_transitions_total\{queue_id="7",outcome="scheduled",reason="lease_expired"\} 1/)
+	assert.match(rendered, /waitqueue_retry_transitions_total\{queue_id="7",outcome="dead_lettered",reason="lease_expired"\} 1/)
+	assert.match(rendered, /waitqueue_retry_transitions_total\{queue_id="7",outcome="promoted",reason="not_applicable"\} 1/)
+	assert.match(rendered, /waitqueue_retry_transitions_total\{queue_id="7",outcome="scheduled",reason="callback_failed"\} 1/)
+	assert.doesNotMatch(rendered, /namespace=/)
+	assert.doesNotMatch(rendered, /sensitive-success-id|sensitive-failure-id|pending:/)
 })

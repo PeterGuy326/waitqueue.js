@@ -42,8 +42,15 @@ function safeErrorIdentifier(value: unknown, fallback: string): string {
 }
 
 const SAFE_REQUEST_PATHS = new Set([
+	'/health/live',
+	'/health/ready',
+	'/metrics',
+	'/metrics/',
 	'/waitqueue/health',
+	'/waitqueue/health/live',
 	'/waitqueue/ready',
+	'/waitqueue/health/ready',
+	'/waitqueue/metrics',
 	'/waitqueue/admin/overview',
 	'/waitqueue/admin/deadLetters',
 	'/waitqueue/admin/deadLetters/replay',

@@ -4,8 +4,6 @@
 
 一个轻量的 HTTP 回调任务队列与并发调度器。业务系统只提交 `taskId`；WaitQueue 负责排队、并发占位和周期检查，真正的任务仍由业务回调服务执行。
 
-![WaitQueue Control Room](docs/control-room.jpg)
-
 > 当前定位是内部服务与二次开发基础设施。项目内置可选 Bearer token、精确回调 origin 允许列表、请求大小限制和轻量限流；为兼容本地开发，token 与允许列表默认为空，共享或生产环境必须显式开启并放在带 TLS 和用户认证的网关之后。
 
 ## 它解决什么问题
@@ -16,7 +14,7 @@
 - Redis FIFO list 保存等待任务，hash/ZSET 保存 claim、退避与死信运行态；
 - Lua 脚本原子完成领取、租约恢复、失败转移和重放，不突破队列并发上限；
 - HTTP 回调驱动 `run`、`check`、`expire` 三类业务动作；
-- Web 控制台展示真实 waiting/running/capacity，并支持注册队列和提交任务；
+- Web 控制台展示真实 waiting/running/retrying/DLQ、等待年龄与回调/领取计数，并支持注册队列和提交任务；
 - 核心服务无任务载荷、图表、消息总线等额外依赖，保持小而明确。
 
 适合构建、导出、媒体处理、批量通知或第三方限流调用。不适合需要任务历史、优先级、复杂工作流或跨节点调度选主的系统。
@@ -73,8 +71,9 @@ docker compose up --build --detach --wait
 Compose 会按 `MySQL → 数据库迁移 → API → 控制台` 的顺序启动，并等待所有长期服务健康。随后访问：
 
 - 控制台：[http://127.0.0.1:3001](http://127.0.0.1:3001)
-- API 存活检查：[http://127.0.0.1:3000/waitqueue/health](http://127.0.0.1:3000/waitqueue/health)
-- API 就绪检查：[http://127.0.0.1:3000/waitqueue/ready](http://127.0.0.1:3000/waitqueue/ready)
+- API 存活检查：[http://127.0.0.1:3000/health/live](http://127.0.0.1:3000/health/live)
+- API 就绪检查：[http://127.0.0.1:3000/health/ready](http://127.0.0.1:3000/health/ready)
+- Prometheus 指标：[http://127.0.0.1:3000/metrics](http://127.0.0.1:3000/metrics)
 
 默认只监听 `127.0.0.1`，数据库凭据也只为隔离的本地体验准备。空 token 和空回调允许列表是兼容模式，不是生产安全默认值。共享或生产环境应先复制配置，替换两个数据库密码，用 `openssl rand -hex 32` 生成 API token，并按实际回调服务填写精确 origin：
 
@@ -330,7 +329,7 @@ docker compose config --quiet
 
 ## HTTP API
 
-所有路径都以 `/waitqueue` 开头，请求和响应使用 JSON。`WAITQUEUE_API_TOKEN` 非空时，`/admin/*`、`/queue/*` 和 `/scheduler/*` 必须带 `Authorization: Bearer <token>`；`GET /health`、`GET /ready` 与 `OPTIONS` 保持无鉴权，便于探针与预检。成功响应统一为：
+队列与管理 API 以 `/waitqueue` 开头；标准探针和抓取路径是 `/health/live`、`/health/ready` 与 `/metrics`。为兼容既有调用方，也保留对应的 `/waitqueue/*` 别名及旧 `/waitqueue/health`、`/waitqueue/ready` 路径。除 Prometheus 文本端点外，请求和响应使用 JSON。`WAITQUEUE_API_TOKEN` 非空时，管理、队列、调度和两个 metrics 路径都必须带 `Authorization: Bearer <token>`；健康检查与 `OPTIONS` 保持无鉴权，便于探针与预检。成功 JSON 响应统一为：
 
 ```json
 {
@@ -344,14 +343,14 @@ docker compose config --quiet
 
 ### 安全边界
 
-- API token 是服务间共享凭据，不是用户登录或细粒度授权。控制台的服务端代理只转发五个明确的 API，丢弃浏览器传入的 Authorization、Cookie 和转发头，再注入服务端 token。任何能访问控制台的人仍可借此操作队列，因此共享部署仍需认证网关。
+- API token 是服务间共享凭据，不是用户登录或细粒度授权。控制台的服务端代理只转发明确列入白名单的健康、概览、DLQ 与写入 API，丢弃浏览器传入的 Authorization、Cookie 和转发头，再注入服务端 token；metrics 刻意不经浏览器代理。任何能访问控制台的人仍可借代理操作队列，因此共享部署仍需认证网关。
 - 回调允许列表按 WHATWG URL 归一化后精确比较 origin，每次真正发送前会再校验。严格模式拒绝 loopback、link-local、私网与本地主机名；域名的所有 DNS 结果也会在连接前校验，实际 socket 固定使用已校验地址。回调不跟随 3xx。`HOOK_URL_ALLOW_PRIVATE=true` 仅用于显式列入的隔离本地演示服务。
 - 内存限流按 API 进程和直连 IP 生效，不信任 `X-Forwarded-For`。多副本或公网环境要由网关补充全局限流；对出站网络要求更强隔离时，应配置出站代理或网络策略。
 - 所有写请求（成功或失败）与鉴权/限流拒绝都会生成结构化审计日志；请求体、token、Cookie、完整回调 URL 和 taskId 不会进入审计字段。
 
 ### 健康检查
 
-`GET /waitqueue/health`
+`GET /health/live`（别名：`GET /waitqueue/health/live`；兼容旧路径：`GET /waitqueue/health`）
 
 ```json
 {
@@ -363,7 +362,7 @@ docker compose config --quiet
 
 这是廉价存活探测，只说明 HTTP 进程可响应，不访问外部依赖。
 
-`GET /waitqueue/ready`
+`GET /health/ready`（别名：`GET /waitqueue/health/ready`；兼容旧路径：`GET /waitqueue/ready`）
 
 就绪检查会并行执行 MySQL `SELECT 1` 与 Redis `PING`。两者都可用时返回 HTTP 200：
 
@@ -378,13 +377,13 @@ docker compose config --quiet
 }
 ```
 
-任一依赖不可用时返回 HTTP 503，响应只给出依赖状态，不暴露连接串或底层错误。容器编排应使用 `/ready`，进程存活探针应使用 `/health`。
+任一依赖不可用时返回 HTTP 503，响应只给出依赖状态，不暴露连接串或底层错误。新部署建议分别使用 `/health/ready` 与 `/health/live`；旧路径保持相同响应契约，不要求调用方同步升级。
 
 ### 控制台快照
 
 `GET /waitqueue/admin/overview`
 
-返回所有队列配置，以及通过一个 Redis pipeline 读取的实时 waiting/running 数量：
+返回所有队列配置、Redis 运行态 gauge，以及当前 API 进程内的回调和领取累计计数。Redis 读取按队列常数复杂度执行，并使用 1 秒短缓存与 in-flight 合并：
 
 ```json
 {
@@ -392,10 +391,19 @@ docker compose config --quiet
   "msg": "success",
   "data": {
     "generatedAt": "2026-08-10T08:00:00.000Z",
+    "metricsStartedAt": "2026-08-10T07:00:00.000Z",
     "summary": {
       "queueCount": 1,
       "waiting": 3,
       "running": 2,
+      "retrying": 1,
+      "deadLetters": 1,
+      "oldestWaitingAt": "2026-08-10T07:57:48.000Z",
+      "oldestWaitingAgeSeconds": 132,
+      "callbackSuccesses": 28,
+      "callbackFailures": 2,
+      "claims": 24,
+      "recovered": 1,
       "capacity": 5,
       "utilization": 40
     },
@@ -407,6 +415,12 @@ docker compose config --quiet
         "concurrency": 5,
         "waiting": 3,
         "running": 2,
+        "retrying": 1,
+        "deadLetters": 1,
+        "oldestWaitingAt": "2026-08-10T07:57:48.000Z",
+        "oldestWaitingAgeSeconds": 132,
+        "callbacks": { "success": 28, "failure": 2 },
+        "claims": { "claimed": 24, "recovered": 1 },
         "available": 3,
         "utilization": 40,
         "crontab": {
@@ -421,7 +435,79 @@ docker compose config --quiet
 }
 ```
 
-响应带 `Cache-Control: no-store`。这是最终一致的瞬时快照，不包含 taskId、任务历史、吞吐或成功率。
+响应带 `Cache-Control: no-store`。`retrying` 是延迟重试 ZSET 当前数量，`deadLetters` 是 DLQ 当前数量；空等待队列的 `oldestWaitingAt` 和 `oldestWaitingAgeSeconds` 都为 `null`，真实刚入队才会返回年龄 `0`。旧版裸 waiting 项在有界迁移首次触达前可能没有入队时间，此时也返回 `null`。callback/claim 是从 `metricsStartedAt` 起由当前进程累计的值，重启会归零并更新该时间；接口不返回 taskId、claim token、回调 URL 或任务历史。
+
+### Prometheus 抓取与告警
+
+`GET /metrics`（别名：`GET /waitqueue/metrics`）返回 Prometheus 0.0.4 文本格式并带 `Cache-Control: no-store`。配置了 `WAITQUEUE_API_TOKEN` 时，该端点与管理 API 一样需要 Bearer token：
+
+```bash
+curl --fail \
+  -H "Authorization: Bearer ${WAITQUEUE_API_TOKEN}" \
+  http://127.0.0.1:3000/metrics
+```
+
+指标固定为以下低基数维度：
+
+| 指标 | 类型 | Labels | 含义 |
+| --- | --- | --- | --- |
+| `waitqueue_queue_waiting_tasks` | gauge | `queue_id` | waiting FIFO（含迁移临时 FIFO）当前任务数 |
+| `waitqueue_queue_running_tasks` | gauge | `queue_id` | 当前占用运行槽位的任务数 |
+| `waitqueue_queue_retrying_tasks` | gauge | `queue_id` | 延迟重试 ZSET 当前任务数 |
+| `waitqueue_queue_dead_letter_tasks` | gauge | `queue_id` | DLQ 当前任务数 |
+| `waitqueue_queue_oldest_waiting_seconds` | gauge | `queue_id` | 最老 waiting 的年龄；空队列或未知时间不输出该 sample |
+| `waitqueue_callback_attempts_total` | counter | `queue_id`, `type`, `outcome` | `run/check/expire` 调用的成功或失败次数 |
+| `waitqueue_claim_transitions_total` | counter | `queue_id`, `outcome` | claimed、recovered、acknowledged 或 stale 状态迁移次数 |
+| `waitqueue_retry_transitions_total` | counter | `queue_id`, `outcome`, `reason` | scheduled、promoted、dead_lettered 次数及受控原因 |
+
+counter 存在 API 进程内，进程重启会归零，查询时应使用 `rate()` 或 `increase()`；多副本部署应保留 Prometheus 的 `instance` 维度后再聚合。gauge 来自 MySQL 队列目录和 Redis 实时状态，相同队列目录的并发请求会合并，并最多复用 1 秒。唯一队列维度是数据库生成的 `queue_id`，series 数量随队列数线性增长；用户可控的 `namespace` 只出现在 JSON 概览中，不进入 Prometheus。任何指标都不会把 `namespace`、`taskId`、claim token、`hookUrl`、原始异常或 HTTP 路径放入 label。
+
+Prometheus 抓取示例（token 文件只包含 token 本身，并应使用只读 Secret 挂载）：
+
+```yaml
+scrape_configs:
+  - job_name: waitqueue
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["waitqueue-api:3000"]
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/waitqueue_api_token
+```
+
+可从 DLQ、等待年龄和回调失败率三个方向建立最小告警集，阈值应按业务 SLO 调整：
+
+```yaml
+groups:
+  - name: waitqueue
+    rules:
+      - alert: WaitQueueDeadLettersPresent
+        expr: waitqueue_queue_dead_letter_tasks > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "WaitQueue {{ $labels.queue_id }} has dead letters"
+
+      - alert: WaitQueueOldestTaskStalled
+        expr: waitqueue_queue_oldest_waiting_seconds > 300
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "WaitQueue waiting age exceeds five minutes"
+
+      - alert: WaitQueueCallbackFailureRatioHigh
+        expr: |
+          sum by (queue_id) (rate(waitqueue_callback_attempts_total{outcome="failure"}[5m]))
+          /
+          clamp_min(sum by (queue_id) (rate(waitqueue_callback_attempts_total[5m])), 0.001)
+          > 0.2
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: "WaitQueue callback failure ratio exceeds 20%"
+```
+
+`/metrics` 依赖 MySQL 队列目录与 Redis；任一读取失败会让抓取返回非 2xx，使 Prometheus 的 `up` 变为 0。生产应同时告警 `up{job="waitqueue"} == 0`。不要为了抓取而把 API 端口直接暴露公网；应放在私有网络或受认证的监控入口后。
 
 ### 查询与重放死信
 
@@ -558,11 +644,12 @@ curl -X POST http://127.0.0.1:3000/waitqueue/admin/deadLetters/replay \
 控制台位于 `admin-dashboard/`，不是 mock 模板，也不是后端启动依赖。它提供：
 
 - 10 秒自动刷新，页面不可见时暂停轮询；
-- 队列总数、waiting、running、capacity 与利用率；
+- 基于 Ant Design 6 的紧凑工作台、浅/深主题和移动端布局；
+- 真实 waiting、running、retrying、DLQ、最老等待与容量利用率；
+- 当前进程 callback、claim、recovery 计数及起始时间；
 - 左侧实时队列目录、Workbench 摘要与并发槽位视图；
 - 队列搜索、并发占用和三类 cron 展示；
-- 注册/更新队列、向指定队列提交任务；
-- 浅色/深色主题与移动端布局；
+- 注册/更新队列、向指定队列提交任务、分页查询与 generation-safe DLQ 重放；
 - 离线、过期、加载和空数据状态。
 
 浏览器只请求当前控制台域名；Next.js 运行时服务端代理按白名单转发 API，并在配置时注入 `WAITQUEUE_API_TOKEN`，因此后端无需 CORS，token 也不进入浏览器 bundle。页面不伪造历史趋势、成功率或平均耗时，因为当前存储模型没有这些数据。

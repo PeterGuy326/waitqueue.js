@@ -12,6 +12,7 @@ import {
 	RedisTaskStore,
 	TaskClaim,
 } from '../reliability/task_store'
+import { waitQueueMetrics, WaitQueueMetrics } from '../observability/metrics'
 
 export interface TaskStateStore {
 	claim(maxRunning: number): Promise<ClaimBatch>
@@ -28,6 +29,7 @@ export interface TaskManagerOptions {
 	reliability?: ReliabilityConfig
 	clock?: () => number
 	tokenFactory?: () => string
+	metrics?: WaitQueueMetrics
 }
 
 function acknowledgedSnapshot(taskSnapshot: Record<string, string>): Record<string, string> {
@@ -42,6 +44,7 @@ export class TaskManager extends Service {
 	private taskRunningCount: number
 	private taskRunInstance: TaskRun
 	private taskStore: TaskStateStore
+	private metrics: WaitQueueMetrics
 
 	constructor(
 		ctx: Context,
@@ -60,6 +63,7 @@ export class TaskManager extends Service {
 		this.queueId = queueId
 		this.namespace = namespace
 		this.taskRunningCount = taskRunningCount
+		this.metrics = options.metrics ?? waitQueueMetrics
 		this.taskStore =
 			options.taskStore ??
 			new RedisTaskStore(
@@ -71,7 +75,8 @@ export class TaskManager extends Service {
 				options.tokenFactory
 			)
 		this.taskRunInstance =
-			options.taskRunner ?? new TaskRun(this.ctx, url, queueId, namespace, hookUrlPolicy)
+			options.taskRunner ??
+			new TaskRun(this.ctx, url, queueId, namespace, hookUrlPolicy, undefined, this.metrics)
 	}
 
 	private async dispatchTask(claim: TaskClaim): Promise<void> {
@@ -81,6 +86,13 @@ export class TaskManager extends Service {
 			this.baseLogError('task trigger failed', error)
 			try {
 				const transition = await this.taskStore.fail(claim)
+				if (transition.outcome === 'retry') {
+					this.metrics.recordRetry(this.queueId, 'scheduled', 'callback_failed')
+				} else if (transition.outcome === 'dead') {
+					this.metrics.recordRetry(this.queueId, 'dead_lettered', 'callback_failed')
+				} else {
+					this.metrics.recordClaim(this.queueId, 'stale')
+				}
 				this.selfLog('task trigger failure transitioned', {
 					outcome: transition.outcome,
 					retryCount: transition.retryCount,
@@ -93,6 +105,10 @@ export class TaskManager extends Service {
 
 		try {
 			const acknowledged = await this.taskStore.acknowledge(claim)
+			this.metrics.recordClaim(
+				this.queueId,
+				acknowledged ? 'acknowledged' : 'stale'
+			)
 			this.selfLog(acknowledged ? 'task trigger acknowledged' : 'stale task trigger acknowledgement ignored')
 		} catch (redisError) {
 			// The pending lease remains recoverable. The callback may be delivered more than once,
@@ -111,6 +127,26 @@ export class TaskManager extends Service {
 
 		try {
 			const batch = await this.taskStore.claim(taskRunningCount)
+			this.metrics.recordClaim(this.queueId, 'claimed', batch.claims.length)
+			this.metrics.recordClaim(this.queueId, 'recovered', batch.recovered)
+			this.metrics.recordRetry(
+				this.queueId,
+				'scheduled',
+				'lease_expired',
+				Math.max(batch.recovered - batch.deadLettered, 0)
+			)
+			this.metrics.recordRetry(
+				this.queueId,
+				'dead_lettered',
+				'lease_expired',
+				batch.deadLettered
+			)
+			this.metrics.recordRetry(
+				this.queueId,
+				'promoted',
+				'not_applicable',
+				batch.promoted
+			)
 			this.selfLog('runTask: state transition summary', {
 				claimed: batch.claims.length,
 				recovered: batch.recovered,

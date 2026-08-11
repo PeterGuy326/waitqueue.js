@@ -4,7 +4,6 @@ import Redis from 'ioredis'
 import { Service } from '../lib/service'
 import { QueueAttributes, QueueDao } from '../dao/queue_dao'
 import { redisCli } from '../conf/redis'
-import { getRunningKey, getWaitingKey } from '../common/cache'
 import {
 	DeadLetterQuery,
 	OperationResult,
@@ -15,26 +14,27 @@ import {
 import { RedisTaskStore, DeadLetterPage } from '../reliability/task_store'
 import { env } from '../conf/env'
 import { HttpError } from '../utils/http_error'
+import {
+	readQueueRuntimeSnapshots,
+	RuntimeSnapshotReader,
+} from '../observability/runtime_snapshot'
+import { waitQueueMetrics, WaitQueueMetrics } from '../observability/metrics'
 
 function percentage(value: number, total: number): number {
 	if (total === 0) return 0
 	return Math.round((value / total) * 1000) / 10
 }
 
-function redisCount(result: [Error | null, unknown] | undefined): number {
-	if (!result) throw new Error('redis pipeline returned an incomplete result')
-	const [error, value] = result
-	if (error) throw error
-	const count = Number(value)
-	if (!Number.isFinite(count)) throw new Error('redis pipeline returned an invalid count')
-	return count
-}
-
 export class AdminService extends Service {
 	private queueDao: ModelCtor<QueueAttributes>
 	private redis: Redis
 
-	constructor(ctx: Context) {
+	constructor(
+		ctx: Context,
+		private readonly runtimeSnapshotReader: RuntimeSnapshotReader = (queues) =>
+			readQueueRuntimeSnapshots(redisCli.getInstance(), queues),
+		private readonly metrics: WaitQueueMetrics = waitQueueMetrics
+	) {
 		super(ctx)
 		this.queueDao = QueueDao
 		this.redis = redisCli.getInstance()
@@ -74,18 +74,18 @@ export class AdminService extends Service {
 
 	async overview(): Promise<QueueOverview> {
 		const queueModels = await this.queueDao.findAll({ order: [['id', 'ASC']] })
-		const pipeline = this.redis.pipeline()
-		for (const queue of queueModels) {
-			pipeline.llen(getWaitingKey(queue.namespace, queue.id))
-			pipeline.hlen(getRunningKey(queue.namespace, queue.id))
-		}
-
-		const counts = queueModels.length > 0 ? await pipeline.exec() : []
-		if (!counts) throw new Error('redis pipeline did not return a result')
+		const runtime = await this.runtimeSnapshotReader(queueModels)
 
 		const queues: QueueOverviewItem[] = queueModels.map((queue, index) => {
-			const waiting = redisCount(counts[index * 2])
-			const running = redisCount(counts[index * 2 + 1])
+			const {
+				waiting,
+				running,
+				retrying,
+				deadLetters,
+				oldestWaitingAt,
+				oldestWaitingAgeSeconds,
+			} = runtime[index]
+			const counters = this.metrics.queueSnapshot(queue.id)
 			const concurrency = queue.count
 			return {
 				queueId: queue.id,
@@ -94,6 +94,12 @@ export class AdminService extends Service {
 				concurrency,
 				waiting,
 				running,
+				retrying,
+				deadLetters,
+				oldestWaitingAt,
+				oldestWaitingAgeSeconds,
+				callbacks: counters.callbacks,
+				claims: counters.claims,
 				available: Math.max(concurrency - running, 0),
 				utilization: percentage(running, concurrency),
 				crontab: {
@@ -110,15 +116,50 @@ export class AdminService extends Service {
 				queueCount: total.queueCount + 1,
 				waiting: total.waiting + queue.waiting,
 				running: total.running + queue.running,
+				retrying: total.retrying + queue.retrying,
+				deadLetters: total.deadLetters + queue.deadLetters,
+				oldestWaitingAt:
+					queue.oldestWaitingAt &&
+					(!total.oldestWaitingAt ||
+						total.oldestWaitingAgeSeconds === null ||
+						(queue.oldestWaitingAgeSeconds !== null &&
+							queue.oldestWaitingAgeSeconds > total.oldestWaitingAgeSeconds))
+						? queue.oldestWaitingAt
+						: total.oldestWaitingAt,
+				oldestWaitingAgeSeconds:
+					queue.oldestWaitingAgeSeconds !== null &&
+					(total.oldestWaitingAgeSeconds === null ||
+						queue.oldestWaitingAgeSeconds > total.oldestWaitingAgeSeconds)
+						? queue.oldestWaitingAgeSeconds
+						: total.oldestWaitingAgeSeconds,
+				callbackSuccesses: total.callbackSuccesses + queue.callbacks.success,
+				callbackFailures: total.callbackFailures + queue.callbacks.failure,
+				claims: total.claims + queue.claims.claimed,
+				recovered: total.recovered + queue.claims.recovered,
 				capacity: total.capacity + queue.concurrency,
 				utilization: 0,
 			}),
-			{ queueCount: 0, waiting: 0, running: 0, capacity: 0, utilization: 0 }
+			{
+				queueCount: 0,
+				waiting: 0,
+				running: 0,
+				retrying: 0,
+				deadLetters: 0,
+				oldestWaitingAt: null as string | null,
+				oldestWaitingAgeSeconds: null as number | null,
+				callbackSuccesses: 0,
+				callbackFailures: 0,
+				claims: 0,
+				recovered: 0,
+				capacity: 0,
+				utilization: 0,
+			}
 		)
 		summary.utilization = percentage(summary.running, summary.capacity)
 
 		return {
 			generatedAt: new Date().toISOString(),
+			metricsStartedAt: this.metrics.startedAt,
 			summary,
 			queues,
 		}

@@ -6,10 +6,22 @@ import { safeLogPath } from '../common/logger'
 
 export type AuditRejection = 'authentication' | 'rate_limit'
 
-const PUBLIC_CONTROL_PATHS = new Set(['/waitqueue/health', '/waitqueue/ready'])
+const PUBLIC_CONTROL_PATHS = new Set([
+	'/health/live',
+	'/health/ready',
+	'/waitqueue/health',
+	'/waitqueue/health/live',
+	'/waitqueue/ready',
+	'/waitqueue/health/ready',
+])
 
 function isControlPath(path: string): boolean {
-	return path === '/waitqueue' || path.startsWith('/waitqueue/')
+	return (
+		path === '/metrics' ||
+		path.startsWith('/metrics/') ||
+		path === '/waitqueue' ||
+		path.startsWith('/waitqueue/')
+	)
 }
 
 function isSecurityExempt(ctx: Context): boolean {

@@ -1,29 +1,35 @@
-# WaitQueue Control Room
+# WaitQueue Workbench
 
-waitqueue.js 的轻量实时运维控制台。它直接读取后端队列配置与 Redis 实时计数，不使用 mock 数据，也不展示当前系统无法证明的历史指标。
+waitqueue.js 的轻量实时运维控制台。它直接读取后端队列配置、Redis 运行快照和当前进程计数，不使用 mock 数据，也不展示当前系统无法证明的历史趋势。
 
-![Control Room](../docs/control-room.jpg)
+界面沿用 DWS Backend 的开发者工作台语言：数据目录、紧凑顶栏、黑色 Workbench 横幅、1px 深色描边和薄荷绿运行状态。交互控件使用 Ant Design 6，布局与视觉 token 保持项目自身风格，没有引入 Ant Design Pro、图表运行时或额外状态库。
 
-界面沿用 DWS Backend 的开发者工作台语言：浅色数据目录、紧凑顶栏、黑色 Workbench 横幅、1px 深色描边和薄荷绿运行状态。所有控件均由语义化 HTML 与局部 CSS 实现，不依赖 UI 组件库。
+## 页面怎么用
 
-<details>
-<summary>移动端预览</summary>
+顶部四个工作区分别承担不同职责：
 
-<p align="center"><img src="../docs/control-room-mobile.jpg" alt="WaitQueue 移动端控制台" width="390"></p>
+1. **总览**：先看 backlog、最老 waiting、Retry、DLQ、容量利用率，以及本进程 callback/claim/recovery 计数。计数的起始时间显示在卡片底部，服务重启后会归零。
+2. **队列**：在左侧目录搜索 namespace、回调 origin 或 queue ID；点选队列后查看运行槽位、Cron 和真实运行状态，也可提交 taskId 或更新配置。
+3. **死信**：选择队列后分页查看 DLQ；重放前必须二次确认，后端用 `entryId` 校验 generation，避免把已更新的旧记录误重放。
+4. **诊断**：分别查看进程 liveness、MySQL/Redis readiness，并核对 Prometheus 抓取契约。
 
-</details>
-
-## 页面能力
-
-- 汇总队列数、waiting、running、capacity 和实时利用率；
-- 通过队列目录、Workbench 摘要和容量条表达调度状态；
-- 展示各队列回调、并发占用和 run/check/expire cron；
-- 搜索队列，注册或更新队列，提交 taskId；
-- 每 10 秒自动刷新，页面切到后台时暂停；
-- 支持浅色/深色主题、桌面与移动布局；
-- 处理 loading、empty、stale 和 offline 状态。
+页面每 10 秒自动刷新，浏览器切到后台时暂停；手动刷新会同时更新队列快照和健康状态。顶栏的 `ONLINE` 只有在 liveness 与 readiness 都成功时才出现，依赖异常会明确显示为 `DEGRADED`。桌面端使用表格与固定队列目录，窄屏切换为卡片、抽屉目录和底部视图导航；浅色/深色主题共用同一套 Ant Design token 状态。
 
 当前没有任务历史存储，因此页面不会展示吞吐趋势、成功率、平均耗时或任务明细。
+
+## 最快启动（推荐）
+
+先在仓库根目录按 [根 README](../README.md) 创建 `.env`，然后运行：
+
+```bash
+docker compose up --build --detach --wait
+```
+
+访问 [http://127.0.0.1:3001](http://127.0.0.1:3001)。API 默认位于 [http://127.0.0.1:3000](http://127.0.0.1:3000)，Compose 会在服务就绪后才把控制台标记为可用。停止环境使用：
+
+```bash
+docker compose down
+```
 
 ## 本地开发
 
@@ -64,7 +70,7 @@ corepack pnpm --dir admin-dashboard start
 
 `dev` 和 `start` 都固定监听 3001，避免与后端默认的 3000 冲突。`WAITQUEUE_API_URL`、`WAITQUEUE_API_TOKEN` 和 `DASHBOARD_ALLOWED_HOSTS` 在服务启动后按请求读取，无需作为 Docker build argument；同一份构建产物可在不同环境复用。
 
-### Docker Compose
+### Docker Compose 运行模型
 
 仓库根目录的 Compose 会把控制台构建为 Next.js standalone 镜像，并在运行时将 API 代理指向容器网络中的 `http://api:3000`：
 
@@ -82,6 +88,8 @@ Browser
        └─ Next.js internal rewrite
             └─ /api/waitqueue/*（服务端白名单代理）
                  └─ WAITQUEUE_API_URL + 服务端 Bearer token
+                      ├─ GET  /waitqueue/health/live（控制台代理）
+                      ├─ GET  /waitqueue/health/ready（控制台代理）
                       ├─ GET  /waitqueue/admin/overview
                       ├─ GET  /waitqueue/admin/deadLetters
                       ├─ POST /waitqueue/admin/deadLetters/replay
@@ -89,24 +97,26 @@ Browser
                       └─ POST /waitqueue/scheduler/addTask
 ```
 
-代理先用 `DASHBOARD_ALLOWED_HOSTS` 精确校验请求 Host，再只接受上图五组 method/path；死信查询只重建 `queueId`、`offset`、`limit` 三个 query 参数，POST 只接受 JSON 且限制为 32 KiB。它不转发浏览器传入的 Authorization、Cookie、Host、任意 query 或转发头，禁止上游重定向，只复制必要的响应头。服务端变量不会进入浏览器 bundle；后端无需开启 CORS。
+代理先用 `DASHBOARD_ALLOWED_HOSTS` 精确校验请求 Host，再只接受上图列出的 method/path；死信查询只重建 `queueId`、`offset`、`limit` 三个 query 参数，POST 只接受 JSON 且限制为 32 KiB。它不转发浏览器传入的 Authorization、Cookie、Host、任意 query 或转发头，禁止上游重定向，只复制必要的响应头。服务端变量不会进入浏览器 bundle；后端无需开启 CORS。Prometheus `/metrics` 刻意不在浏览器代理白名单中，应由采集器直接携带后端 Bearer token 抓取；后端仍保留 `/waitqueue/metrics` 兼容别名。
 
 ## 技术与目录
 
-运行时只保留三个直接依赖：Next.js、React 和 React DOM。
+运行时直接依赖只有 Next.js、React、Ant Design、图标与其 SSR 样式运行时；没有 Ant Design Pro、Redux、Axios、Mock.js 或图表库。Pages Router 使用 `_document.tsx` 提取 Ant Design CSS-in-JS 样式，避免首屏闪烁。Next 16 的开发与生产构建显式使用 Webpack，以确保 Ant Design 与提取器共享同一个样式上下文；CI 会检查产物中存在真实 Ant 组件规则，而不只检查空的 style 标签。
 
 ```text
 admin-dashboard/
-├── src/pages/_app.tsx             # 全局样式与页面入口
+├── src/pages/_app.tsx             # 全局样式与主题入口
+├── src/pages/_document.tsx        # Ant Design 服务端样式提取
 ├── src/pages/index.tsx            # 数据读取、交互与控制室页面
 ├── src/pages/api/waitqueue/       # 运行时白名单代理与 token 注入
 ├── src/style/global.css           # 设计 token、主题与基础样式
 ├── src/style/dashboard.module.css # 工作台布局、状态组件和响应式样式
+├── src/theme/                      # Ant Design token 与浅/深主题状态
 ├── next.config.js                 # API 同源代理
 └── .env.example                   # 后端地址示例
 ```
 
-HTTP 使用浏览器原生 `fetch`，页面状态使用 React hooks；没有 Redux、Axios、Mock.js 或图表运行时。
+HTTP 使用浏览器原生 `fetch`，页面状态使用 React hooks。后端未持久化任务历史，所以页面明确不伪造吞吐趋势、历史成功率或平均耗时。
 
 ## 安全边界
 

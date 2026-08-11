@@ -6,6 +6,8 @@ const PROXY_TIMEOUT_MS = 10_000;
 const JSON_CONTENT_TYPE = 'application/json';
 
 const ALLOWED_ROUTES = new Map<string, 'GET' | 'POST'>([
+  ['health/live', 'GET'],
+  ['health/ready', 'GET'],
   ['admin/overview', 'GET'],
   ['admin/deadLetters', 'GET'],
   ['admin/deadLetters/replay', 'POST'],

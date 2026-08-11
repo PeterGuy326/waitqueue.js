@@ -114,8 +114,34 @@ test('Bearer authentication protects control APIs while health, readiness, and O
 	})
 
 	assert.equal((await fetch(`${baseUrl}/waitqueue/health`)).status, 200)
+	assert.equal((await fetch(`${baseUrl}/health/live`)).status, 200)
+	assert.equal((await fetch(`${baseUrl}/health/ready`)).status, 200)
+	assert.equal((await fetch(`${baseUrl}/waitqueue/health/live`)).status, 200)
 	assert.equal((await fetch(`${baseUrl}/waitqueue/ready`)).status, 200)
+	assert.equal((await fetch(`${baseUrl}/waitqueue/health/ready`)).status, 200)
 	assert.equal((await fetch(`${baseUrl}/waitqueue/admin/overview`, { method: 'OPTIONS' })).status, 200)
+	assert.equal((await fetch(`${baseUrl}/metrics`)).status, 401)
+	assert.equal(
+		(await fetch(`${baseUrl}/metrics/`)).status,
+		401,
+		'the router-compatible trailing slash must not bypass metrics authentication'
+	)
+	assert.equal(
+		(
+			await fetch(`${baseUrl}/metrics/`, {
+				headers: { authorization: 'Bearer wrong-secret' },
+			})
+		).status,
+		401
+	)
+	assert.equal(
+		(
+			await fetch(`${baseUrl}/metrics`, {
+				headers: { authorization: 'Bearer test-secret' },
+			})
+		).status,
+		200
+	)
 
 	const missing = await fetch(`${baseUrl}/waitqueue/admin/overview`)
 	assert.equal(missing.status, 401)
