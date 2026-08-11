@@ -40,6 +40,18 @@ export interface QueueOverviewItem {
 	concurrency: number
 	waiting: number
 	running: number
+	retrying: number
+	deadLetters: number
+	oldestWaitingAt: string | null
+	oldestWaitingAgeSeconds: number | null
+	callbacks: {
+		success: number
+		failure: number
+	}
+	claims: {
+		claimed: number
+		recovered: number
+	}
 	available: number
 	utilization: number
 	crontab: QueueCrontab
@@ -48,10 +60,19 @@ export interface QueueOverviewItem {
 
 export interface QueueOverview {
 	generatedAt: string
+	metricsStartedAt: string
 	summary: {
 		queueCount: number
 		waiting: number
 		running: number
+		retrying: number
+		deadLetters: number
+		oldestWaitingAt: string | null
+		oldestWaitingAgeSeconds: number | null
+		callbackSuccesses: number
+		callbackFailures: number
+		claims: number
+		recovered: number
 		capacity: number
 		utilization: number
 	}

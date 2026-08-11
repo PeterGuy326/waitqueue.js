@@ -279,11 +279,45 @@ jobs:
             '.code == 0 and .data.status == "ok"' \
             <<< "$health_json" > /dev/null
 
+          live_json="$(curl --fail --silent --show-error \
+            "http://127.0.0.1:${API_PORT}/health/live")"
+          jq --exit-status \
+            '.code == 0 and .data.status == "ok"' \
+            <<< "$live_json" > /dev/null
+
           ready_json="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 2 \
             "http://127.0.0.1:${API_PORT}/waitqueue/ready")"
           jq --exit-status \
             '.code == 0 and .data.status == "ready" and .data.dependencies.mysql == "ok" and .data.dependencies.redis == "ok"' \
             <<< "$ready_json" > /dev/null
+
+          ready_alias_json="$(curl --fail --silent --show-error \
+            "http://127.0.0.1:${API_PORT}/health/ready")"
+          jq --exit-status \
+            '.code == 0 and .data.status == "ready" and .data.dependencies.mysql == "ok" and .data.dependencies.redis == "ok"' \
+            <<< "$ready_alias_json" > /dev/null
+
+          unauthenticated_metrics_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            "http://127.0.0.1:${API_PORT}/metrics")"
+          test "$unauthenticated_metrics_status" = "401"
+
+          unauthenticated_metrics_slash_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            "http://127.0.0.1:${API_PORT}/metrics/")"
+          test "$unauthenticated_metrics_slash_status" = "401"
+
+          wrong_token_metrics_slash_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --header 'Authorization: Bearer definitely-wrong' \
+            "http://127.0.0.1:${API_PORT}/metrics/")"
+          test "$wrong_token_metrics_slash_status" = "401"
+
+          metrics_body="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer ${WAITQUEUE_API_TOKEN}" \
+            "http://127.0.0.1:${API_PORT}/metrics")"
+          grep --fixed-strings --quiet '# TYPE waitqueue_queue_waiting_tasks gauge' <<< "$metrics_body"
+          grep --fixed-strings --quiet '# TYPE waitqueue_callback_attempts_total counter' <<< "$metrics_body"
+          if grep --extended-regexp --quiet 'namespace=|task_id=|taskId=|token=|hook_url=|hookUrl=' <<< "$metrics_body"; then
+            exit 1
+          fi
 
           unauthenticated_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
             "http://127.0.0.1:${API_PORT}/waitqueue/admin/overview")"
@@ -297,7 +331,8 @@ jobs:
           authenticated_json="$(curl --fail --silent --show-error \
             --header "Authorization: Bearer ${WAITQUEUE_API_TOKEN}" \
             "http://127.0.0.1:${API_PORT}/waitqueue/admin/overview")"
-          jq --exit-status '.code == 0 and .data.summary.queueCount == 0' \
+          jq --exit-status \
+            '.code == 0 and .data.summary.queueCount == 0 and .data.summary.retrying == 0 and .data.summary.deadLetters == 0 and .data.summary.oldestWaitingAt == null and .data.summary.oldestWaitingAgeSeconds == null and (.data.metricsStartedAt | type) == "string"' \
             <<< "$authenticated_json" > /dev/null
 
           private_hook_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
@@ -320,7 +355,26 @@ jobs:
 
           dashboard_html="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 2 \
             "http://127.0.0.1:${DASHBOARD_PORT}/")"
-          grep --fixed-strings --quiet 'WaitQueue Control Room' <<< "$dashboard_html"
+          grep --fixed-strings --quiet 'WaitQueue Workbench' <<< "$dashboard_html"
+          node -e '
+            let html = "";
+            process.stdin.setEncoding("utf8");
+            process.stdin.on("data", (chunk) => { html += chunk; });
+            process.stdin.on("end", () => {
+              const css = html.match(/<style id="antd-ssr">([\s\S]*?)<\/style>/)?.[1] || "";
+              if (css.length < 1000 || !/\.ant-(app|btn|layout|menu|table)/.test(css)) process.exit(1);
+            });
+          ' <<< "$dashboard_html"
+
+          dashboard_live_json="$(curl --fail --silent --show-error \
+            "http://127.0.0.1:${DASHBOARD_PORT}/waitqueue/health/live")"
+          jq --exit-status \
+            '.code == 0 and .data.status == "ok"' \
+            <<< "$dashboard_live_json" > /dev/null
+
+          dashboard_metrics_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            "http://127.0.0.1:${DASHBOARD_PORT}/waitqueue/metrics")"
+          test "$dashboard_metrics_status" = "404"
 
           proxy_content_type_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
             --request POST \

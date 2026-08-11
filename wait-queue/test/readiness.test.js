@@ -95,6 +95,34 @@ test('GET /waitqueue/ready returns 200 only when all dependencies are ready', as
 	})
 })
 
+test('canonical health paths and namespaced aliases preserve the probe contracts', async (t) => {
+	const baseUrl = await startTestApp(t, async () => ({
+		ready: true,
+		dependencies: { mysql: 'ok', redis: 'ok' },
+	}))
+	const [liveness, readiness, namespacedLiveness, namespacedReadiness] = await Promise.all([
+		fetch(`${baseUrl}/health/live`),
+		fetch(`${baseUrl}/health/ready`),
+		fetch(`${baseUrl}/waitqueue/health/live`),
+		fetch(`${baseUrl}/waitqueue/health/ready`),
+	])
+
+	assert.equal(liveness.status, 200)
+	assert.deepEqual(await liveness.json(), {
+		code: 0,
+		msg: 'success',
+		data: { status: 'ok' },
+	})
+	assert.equal(readiness.status, 200)
+	assert.equal(readiness.headers.get('cache-control'), 'no-store')
+	assert.deepEqual((await readiness.json()).data, {
+		status: 'ready',
+		dependencies: { mysql: 'ok', redis: 'ok' },
+	})
+	assert.equal(namespacedLiveness.status, 200)
+	assert.equal(namespacedReadiness.status, 200)
+})
+
 test('GET /waitqueue/ready returns a generic 503 without dependency details', async (t) => {
 	const secret = 'mysql://root:secret@database.internal/waitqueue'
 	const baseUrl = await startTestApp(t, async () => {

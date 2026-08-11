@@ -1,7 +1,65 @@
+import {
+  Alert,
+  App as AntApp,
+  Badge,
+  Button,
+  Card,
+  Drawer,
+  Empty,
+  Form,
+  Input,
+  InputNumber,
+  Layout,
+  Menu,
+  Modal,
+  Pagination,
+  Progress,
+  Segmented,
+  Select,
+  Skeleton,
+  Space,
+  Statistic,
+  Table,
+  Tag,
+  Tooltip,
+  type MenuProps,
+  type TableColumnsType,
+} from 'antd';
+import {
+  AppstoreOutlined,
+  BarsOutlined,
+  CheckCircleOutlined,
+  CloudServerOutlined,
+  CodeOutlined,
+  DashboardOutlined,
+  DatabaseOutlined,
+  FieldTimeOutlined,
+  MenuOutlined,
+  MoonOutlined,
+  PlusOutlined,
+  RedoOutlined,
+  ReloadOutlined,
+  SafetyCertificateOutlined,
+  SearchOutlined,
+  SendOutlined,
+  SettingOutlined,
+  SunOutlined,
+  ThunderboltOutlined,
+  WarningOutlined,
+} from '@ant-design/icons';
 import type { NextPage } from 'next';
 import Head from 'next/head';
-import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useColorMode } from '../theme/control-room-theme';
 import styles from '../style/dashboard.module.css';
+
+const { Header, Sider, Content } = Layout;
+const REQUEST_TIMEOUT_MS = 10_000;
+const REFRESH_INTERVAL_MS = 10_000;
+const DEAD_LETTER_PAGE_SIZE = 20;
+
+type ViewKey = 'overview' | 'queues' | 'deadLetters' | 'diagnostics';
+type ServiceState = 'SYNCING' | 'ONLINE' | 'DEGRADED' | 'STALE' | 'OFFLINE';
 
 interface QueueCrontab {
   run: string;
@@ -18,20 +76,66 @@ interface QueueOverviewItem {
   running: number;
   available: number;
   utilization: number;
+  retrying?: number;
+  deadLetters?: number;
+  oldestWaitingAt?: string | null;
+  oldestWaitingAgeSeconds?: number | null;
+  callbacks?: { success: number; failure: number };
+  claims?: { claimed: number; recovered: number };
   crontab: QueueCrontab;
   updatedAt: string;
 }
 
 interface QueueOverview {
   generatedAt: string;
+  metricsStartedAt?: string;
   summary: {
     queueCount: number;
     waiting: number;
     running: number;
     capacity: number;
     utilization: number;
+    retrying?: number;
+    deadLetters?: number;
+    oldestWaitingAt?: string | null;
+    oldestWaitingAgeSeconds?: number | null;
+    callbackSuccesses?: number;
+    callbackFailures?: number;
+    claims?: number;
+    recovered?: number;
+    deadLettered?: number;
   };
   queues: QueueOverviewItem[];
+}
+
+interface HealthPayload {
+  status: string;
+  dependencies?: {
+    mysql: 'ok' | 'unavailable';
+    redis: 'ok' | 'unavailable';
+  };
+}
+
+interface HealthState {
+  live: boolean | null;
+  ready: boolean | null;
+  dependencies: HealthPayload['dependencies'];
+  checkedAt?: string;
+}
+
+interface DeadLetterItem {
+  entryId: string;
+  taskId: string;
+  retryCount: number;
+  failedAt: string;
+  reason: 'callback_failed' | 'lease_expired';
+}
+
+interface DeadLetterPage {
+  total: number;
+  offset: number;
+  limit: number;
+  items: DeadLetterItem[];
 }
 
 interface ApiEnvelope<T> {
@@ -40,40 +144,28 @@ interface ApiEnvelope<T> {
   data: T;
 }
 
-interface QueueDraft {
+interface QueueFormValues {
   namespace: string;
   hookUrl: string;
-  concurrency: string;
+  concurrency: number;
   run: string;
   check: string;
   expire: string;
 }
 
-interface TaskDraft {
-  queueId: string;
+interface TaskFormValues {
+  queueId: number;
   taskId: string;
 }
 
-interface ToastState {
-  id: number;
-  tone: 'success' | 'error';
-  text: string;
-}
-
-const EMPTY_QUEUE: QueueDraft = {
+const DEFAULT_QUEUE_VALUES: QueueFormValues = {
   namespace: '',
   hookUrl: '',
-  concurrency: '5',
+  concurrency: 5,
   run: '*/5 * * * * *',
   check: '*/10 * * * * *',
   expire: '0 */5 * * * *',
 };
-
-const REQUEST_TIMEOUT_MS = 10_000;
-
-function Glyph({ children }: { children: React.ReactNode }) {
-  return <span className={styles.iconGlyph} aria-hidden="true">{children}</span>;
-}
 
 async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
@@ -101,6 +193,14 @@ async function decodeResponse<T>(response: Response): Promise<T> {
   return payload.data;
 }
 
+async function getJson<T>(path: string): Promise<T> {
+  const response = await fetchWithTimeout(path, {
+    headers: { accept: 'application/json' },
+    cache: 'no-store',
+  });
+  return decodeResponse<T>(response);
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetchWithTimeout(path, {
     method: 'POST',
@@ -110,10 +210,32 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return decodeResponse<T>(response);
 }
 
-function formatTimestamp(value?: string): string {
-  if (!value) return '尚未同步';
+async function probeHealth(path: string): Promise<{ ok: boolean; data?: HealthPayload }> {
+  const response = await fetchWithTimeout(path, {
+    headers: { accept: 'application/json' },
+    cache: 'no-store',
+  });
+  let payload: ApiEnvelope<HealthPayload> | undefined;
+  try {
+    payload = (await response.json()) as ApiEnvelope<HealthPayload>;
+  } catch {
+    return { ok: false };
+  }
+  return { ok: response.ok && payload.code === 0, data: payload.data };
+}
+
+function safeNumber(value: number | undefined): number | undefined {
+  return Number.isFinite(value) && (value as number) >= 0 ? value : undefined;
+}
+
+function metric(value: number | undefined): number | '—' {
+  return safeNumber(value) ?? '—';
+}
+
+function formatTimestamp(value?: string | null): string {
+  if (!value) return '—';
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '时间未知';
+  if (Number.isNaN(date.getTime())) return '—';
   return new Intl.DateTimeFormat('zh-CN', {
     month: '2-digit',
     day: '2-digit',
@@ -124,282 +246,319 @@ function formatTimestamp(value?: string): string {
   }).format(date);
 }
 
-function displayUrl(value: string): string {
+function formatAge(value: number | null | undefined, waiting = 0): string {
+  if (value === undefined) return '—';
+  if (value === null) return waiting > 0 ? '时间未知' : '无等待';
+  if (!Number.isFinite(value) || value < 0) return '—';
+  if (value < 60) return value < 1 ? '刚刚' : `${Math.floor(value)} 秒`;
+  if (value < 3600) return `${Math.floor(value / 60)} 分 ${Math.floor(value % 60)} 秒`;
+  if (value < 86_400) return `${Math.floor(value / 3600)} 小时 ${Math.floor((value % 3600) / 60)} 分`;
+  return `${Math.floor(value / 86_400)} 天 ${Math.floor((value % 86_400) / 3600)} 小时`;
+}
+
+function displayHook(value: string): string {
   try {
     const url = new URL(value);
-    url.username = '';
-    url.password = '';
-    url.search = '';
-    url.hash = '';
-    return url.toString();
+    return `${url.origin}${url.pathname === '/' ? '' : '/…'}`;
   } catch {
-    return value;
+    return 'invalid hook origin';
   }
 }
 
-function queueStatus(queue: QueueOverviewItem): { label: string; tone: string } {
-  if (queue.waiting > 0 && queue.running >= queue.concurrency) {
-    return { label: '排队中', tone: styles.statusWarning };
-  }
-  if (queue.waiting > 0) return { label: '有积压', tone: styles.statusWarning };
-  if (queue.running > 0) return { label: '运行中', tone: styles.statusActive };
-  return { label: '空闲', tone: styles.statusIdle };
+function queueState(queue: QueueOverviewItem): { label: string; color: 'success' | 'warning' | 'error' | 'default' } {
+  if ((queue.deadLetters ?? 0) > 0) return { label: '需处理', color: 'error' };
+  if (queue.waiting > 0 && queue.running >= queue.concurrency) return { label: '容量已满', color: 'warning' };
+  if (queue.waiting > 0 || (queue.retrying ?? 0) > 0) return { label: '有积压', color: 'warning' };
+  if (queue.running > 0) return { label: '运行中', color: 'success' };
+  return { label: '空闲', color: 'default' };
 }
 
-function CapacityTrack({ queue }: { queue: QueueOverviewItem }) {
-  const segments = Math.min(Math.max(queue.concurrency, 1), 12);
-  const active =
-    queue.running === 0
-      ? 0
-      : Math.max(1, Math.min(segments, Math.ceil((queue.running / queue.concurrency) * segments)));
-
-  return (
-    <div className={styles.capacityTrack} aria-label={`运行 ${queue.running}，并发上限 ${queue.concurrency}`}>
-      {Array.from({ length: segments }, (_, index) => (
-        <span key={index} className={index < active ? styles.capacityActive : styles.capacitySlot} />
-      ))}
-    </div>
-  );
+function serviceState(overview: QueueOverview | null, error: string, health: HealthState, loading: boolean): ServiceState {
+  if (loading && !overview) return 'SYNCING';
+  if (!overview) return 'OFFLINE';
+  if (error) return 'STALE';
+  if (health.live === false) return 'OFFLINE';
+  if (health.ready === false) return 'DEGRADED';
+  if (health.live === true && health.ready === true) return 'ONLINE';
+  return 'SYNCING';
 }
 
-function Dialog({
-  title,
-  eyebrow,
-  onClose,
-  children,
+function stateTag(state: ServiceState) {
+  const map: Record<ServiceState, { color: string; icon: React.ReactNode; text: string }> = {
+    SYNCING: { color: 'processing', icon: <ReloadOutlined spin />, text: 'SYNCING' },
+    ONLINE: { color: 'success', icon: <CheckCircleOutlined />, text: 'ONLINE' },
+    DEGRADED: { color: 'warning', icon: <WarningOutlined />, text: 'DEGRADED' },
+    STALE: { color: 'warning', icon: <FieldTimeOutlined />, text: 'STALE' },
+    OFFLINE: { color: 'error', icon: <WarningOutlined />, text: 'OFFLINE' },
+  };
+  const item = map[state];
+  return <Tag color={item.color} icon={item.icon}>{item.text}</Tag>;
+}
+
+function SidebarCatalog({
+  overview,
+  queues,
+  activeQueueId,
+  query,
+  onQuery,
+  onSelect,
+  onCreate,
 }: {
-  title: string;
-  eyebrow: string;
-  onClose: () => void;
-  children: React.ReactNode;
+  overview: QueueOverview | null;
+  queues: QueueOverviewItem[];
+  activeQueueId: number | null;
+  query: string;
+  onQuery: (value: string) => void;
+  onSelect: (queueId: number) => void;
+  onCreate: () => void;
 }) {
-  const dialogRef = useRef<HTMLElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
-  useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const background = document.querySelector<HTMLElement>('[data-dashboard-shell]');
-    background?.setAttribute('inert', '');
-    background?.setAttribute('aria-hidden', 'true');
-
-    const dialog = dialogRef.current;
-    const preferredFocus =
-      dialog?.querySelector<HTMLElement>('[data-dialog-autofocus]') ??
-      dialog?.querySelector<HTMLElement>('input:not([disabled]), select:not([disabled])') ??
-      dialog?.querySelector<HTMLElement>('button:not([disabled])');
-    preferredFocus?.focus();
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onCloseRef.current();
-        return;
-      }
-      if (event.key !== 'Tab' || !dialog) return;
-
-      const focusable = Array.from(
-        dialog.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        )
-      );
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      background?.removeAttribute('inert');
-      background?.removeAttribute('aria-hidden');
-      previousFocus?.focus();
-    };
-  }, []);
-
   return (
-    <div
-      className={styles.dialogBackdrop}
-      role="presentation"
-      onMouseDown={(event) => event.currentTarget === event.target && onClose()}
-    >
-      <section ref={dialogRef} className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="dialog-title">
-        <div className={styles.dialogHeader}>
-          <div>
-            <span className={styles.eyebrow}>{eyebrow}</span>
-            <h2 id="dialog-title">{title}</h2>
-          </div>
-          <button className={styles.iconButton} type="button" onClick={onClose} aria-label="关闭">
-            <Glyph>×</Glyph>
-          </button>
-        </div>
-        {children}
-      </section>
+    <div className={styles.catalog}>
+      <div className={styles.catalogNumbers} aria-label="队列实时摘要">
+        <span><b>{metric(overview?.summary.queueCount)}</b> 队列</span>
+        <span><b>{metric(overview?.summary.running)}</b> 运行</span>
+        <span><b>{metric(overview?.summary.waiting)}</b> 等待</span>
+      </div>
+      <div className={styles.catalogSearch}>
+        <Input
+          allowClear
+          prefix={<SearchOutlined />}
+          value={query}
+          onChange={(event) => onQuery(event.target.value)}
+          placeholder="搜索 namespace / origin / ID"
+          aria-label="搜索队列"
+        />
+      </div>
+      <button className={styles.catalogTitle} type="button" onClick={() => onQuery('')}>
+        <AppstoreOutlined />
+        <span><strong>完整目录</strong><small>REALTIME QUEUE REGISTRY</small></span>
+        <b>{overview?.summary.queueCount ?? 0}</b>
+      </button>
+      <div className={styles.catalogLabel}>
+        <span>SCHEDULER QUEUES</span>
+        <b>{queues.length}</b>
+      </div>
+      <nav className={styles.queueNav} aria-label="已注册队列">
+        {queues.map((queue) => {
+          const selected = queue.queueId === activeQueueId;
+          const state = queueState(queue);
+          return (
+            <button
+              key={queue.queueId}
+              type="button"
+              className={selected ? styles.queueNavActive : undefined}
+              onClick={() => onSelect(queue.queueId)}
+              aria-current={selected ? 'location' : undefined}
+            >
+              <span className={styles.queueGlyph}><CloudServerOutlined /></span>
+              <span>
+                <strong title={queue.namespace}>{queue.namespace}</strong>
+                <small>Q-{String(queue.queueId).padStart(3, '0')} · {state.label}</small>
+              </span>
+              <Badge count={queue.waiting} showZero overflowCount={99999} color={queue.waiting > 0 ? '#d46b08' : '#777'} />
+            </button>
+          );
+        })}
+        {queues.length === 0 && <p className={styles.catalogEmpty}>{query ? '没有匹配队列' : '暂无队列'}</p>}
+      </nav>
+      <div className={styles.catalogFooter}>
+        <Button type="primary" icon={<PlusOutlined />} block onClick={onCreate}>注册队列</Button>
+        <small>自动刷新 · 10 秒</small>
+      </div>
     </div>
   );
 }
 
 const Dashboard: NextPage = () => {
+  const { message, modal } = AntApp.useApp();
+  const { mode, toggleMode } = useColorMode();
   const [overview, setOverview] = useState<QueueOverview | null>(null);
+  const [health, setHealth] = useState<HealthState>({ live: null, ready: null, dependencies: undefined });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [activeQueueId, setActiveQueueId] = useState<number | null>(null);
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
-  const [queueDialogOpen, setQueueDialogOpen] = useState(false);
+  const [view, setView] = useState<ViewKey>('overview');
+  const [mobileCatalogOpen, setMobileCatalogOpen] = useState(false);
+  const [queueModalOpen, setQueueModalOpen] = useState(false);
   const [editingQueueId, setEditingQueueId] = useState<number | null>(null);
-  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
-  const [queueDraft, setQueueDraft] = useState<QueueDraft>(EMPTY_QUEUE);
-  const [taskDraft, setTaskDraft] = useState<TaskDraft>({ queueId: '', taskId: '' });
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [toast, setToast] = useState<ToastState | null>(null);
-  const requestInFlight = useRef(false);
-  const toastSequence = useRef(0);
-
-  const notify = useCallback((tone: ToastState['tone'], text: string) => {
-    toastSequence.current += 1;
-    setToast({ id: toastSequence.current, tone, text });
-  }, []);
-
-  useEffect(() => {
-    if (!toast) return undefined;
-    const timer = window.setTimeout(() => {
-      setToast((current) => (current?.id === toast.id ? null : current));
-    }, 3200);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
+  const [deadLetters, setDeadLetters] = useState<DeadLetterPage | null>(null);
+  const [deadLetterQueueId, setDeadLetterQueueId] = useState<number | null>(null);
+  const [deadLetterLoading, setDeadLetterLoading] = useState(false);
+  const [deadLetterPage, setDeadLetterPage] = useState(1);
+  const overviewRequest = useRef(false);
+  const healthRequest = useRef(false);
+  const deadLetterRequest = useRef(0);
+  const [queueForm] = Form.useForm<QueueFormValues>();
+  const [taskForm] = Form.useForm<TaskFormValues>();
 
   const loadOverview = useCallback(async (manual = false) => {
-    if (requestInFlight.current) return;
-    requestInFlight.current = true;
+    if (overviewRequest.current) return;
+    overviewRequest.current = true;
     if (manual) setRefreshing(true);
     try {
-      const response = await fetchWithTimeout('/waitqueue/admin/overview', {
-        headers: { accept: 'application/json' },
-        cache: 'no-store',
-      });
-      const data = await decodeResponse<QueueOverview>(response);
+      const data = await getJson<QueueOverview>('/waitqueue/admin/overview');
       setOverview(data);
+      setActiveQueueId((current) => current ?? data.queues[0]?.queueId ?? null);
       setError('');
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '无法连接 waitqueue 服务');
+      setError(reason instanceof Error ? reason.message : '无法连接 WaitQueue 服务');
     } finally {
-      requestInFlight.current = false;
+      overviewRequest.current = false;
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => {
-    void loadOverview();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void loadOverview();
-    }, 10_000);
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') void loadOverview();
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [loadOverview]);
-
-  useEffect(() => {
-    const saved = window.localStorage.getItem('waitqueue-theme');
-    if (saved === 'dark') setTheme('dark');
+  const loadHealth = useCallback(async () => {
+    if (healthRequest.current) return;
+    healthRequest.current = true;
+    try {
+      const [live, ready] = await Promise.allSettled([
+        probeHealth('/waitqueue/health/live'),
+        probeHealth('/waitqueue/health/ready'),
+      ]);
+      const liveResult = live.status === 'fulfilled' ? live.value : { ok: false };
+      const readyResult = ready.status === 'fulfilled' ? ready.value : { ok: false };
+      setHealth({
+        live: liveResult.ok,
+        ready: readyResult.ok,
+        dependencies: readyResult.data?.dependencies,
+        checkedAt: new Date().toISOString(),
+      });
+    } finally {
+      healthRequest.current = false;
+    }
   }, []);
 
+  const refreshAll = useCallback(async (manual = false) => {
+    await Promise.all([loadOverview(manual), loadHealth()]);
+  }, [loadHealth, loadOverview]);
+
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    window.localStorage.setItem('waitqueue-theme', theme);
-  }, [theme]);
+    void refreshAll();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refreshAll();
+    }, REFRESH_INTERVAL_MS);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void refreshAll();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [refreshAll]);
 
   const queues = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return overview?.queues ?? [];
-    return (overview?.queues ?? []).filter(
-      (queue) =>
-        queue.namespace.toLowerCase().includes(normalized) ||
-        queue.hookUrl.toLowerCase().includes(normalized) ||
-        String(queue.queueId).includes(normalized)
+    return (overview?.queues ?? []).filter((queue) =>
+      queue.namespace.toLowerCase().includes(normalized) ||
+      displayHook(queue.hookUrl).toLowerCase().includes(normalized) ||
+      String(queue.queueId).includes(normalized)
     );
   }, [overview, query]);
 
   const activeQueue = useMemo(
-    () => queues.find((queue) => queue.queueId === activeQueueId) ?? queues[0] ?? null,
-    [activeQueueId, queues]
+    () => overview?.queues.find((queue) => queue.queueId === activeQueueId) ?? overview?.queues[0] ?? null,
+    [activeQueueId, overview]
   );
+  const currentDeadLetters = deadLetterQueueId === activeQueue?.queueId ? deadLetters : null;
 
-  const serviceState = loading && !overview ? 'SYNCING' : error ? (overview ? 'STALE' : 'OFFLINE') : 'ONLINE';
-  const serviceTone = error ? styles.serviceError : styles.serviceOnline;
+  const currentServiceState = serviceState(overview, error, health, loading);
 
-  const openQueueDialog = (queue?: QueueOverviewItem) => {
+  const loadDeadLetters = useCallback(async (queueId: number, page = 1) => {
+    const requestId = ++deadLetterRequest.current;
+    setDeadLetterLoading(true);
+    try {
+      let resolvedPage = page;
+      let offset = (resolvedPage - 1) * DEAD_LETTER_PAGE_SIZE;
+      let data = await getJson<DeadLetterPage>(
+        `/waitqueue/admin/deadLetters?queueId=${queueId}&offset=${offset}&limit=${DEAD_LETTER_PAGE_SIZE}`
+      );
+      if (requestId !== deadLetterRequest.current) return;
+
+      if (resolvedPage > 1 && data.items.length === 0 && data.total <= offset) {
+        resolvedPage = Math.max(1, Math.ceil(data.total / DEAD_LETTER_PAGE_SIZE));
+        offset = (resolvedPage - 1) * DEAD_LETTER_PAGE_SIZE;
+        data = await getJson<DeadLetterPage>(
+          `/waitqueue/admin/deadLetters?queueId=${queueId}&offset=${offset}&limit=${DEAD_LETTER_PAGE_SIZE}`
+        );
+      }
+      if (requestId !== deadLetterRequest.current) return;
+      setDeadLetters(data);
+      setDeadLetterQueueId(queueId);
+      setDeadLetterPage(resolvedPage);
+    } catch (reason) {
+      if (requestId === deadLetterRequest.current) {
+        message.error(reason instanceof Error ? reason.message : '读取死信队列失败');
+      }
+    } finally {
+      if (requestId === deadLetterRequest.current) setDeadLetterLoading(false);
+    }
+  }, [message]);
+
+  useEffect(() => {
+    setDeadLetterPage(1);
+    setDeadLetters(null);
+    setDeadLetterQueueId(null);
+    if (view === 'deadLetters' && activeQueue) {
+      void loadDeadLetters(activeQueue.queueId, 1);
+    } else {
+      deadLetterRequest.current += 1;
+      setDeadLetterLoading(false);
+    }
+  }, [activeQueue?.queueId, loadDeadLetters, view]);
+
+  const openQueueModal = (queue?: QueueOverviewItem) => {
     setEditingQueueId(queue?.queueId ?? null);
-    setQueueDraft(
+    queueForm.setFieldsValue(
       queue
         ? {
             namespace: queue.namespace,
             hookUrl: queue.hookUrl,
-            concurrency: String(queue.concurrency),
+            concurrency: queue.concurrency,
             run: queue.crontab.run,
             check: queue.crontab.check,
             expire: queue.crontab.expire,
           }
-        : EMPTY_QUEUE
+        : DEFAULT_QUEUE_VALUES
     );
-    setQueueDialogOpen(true);
+    setQueueModalOpen(true);
   };
 
-  const openTaskDialog = (queue?: QueueOverviewItem) => {
-    setTaskDraft({ queueId: queue ? String(queue.queueId) : String(overview?.queues[0]?.queueId ?? ''), taskId: '' });
-    setTaskDialogOpen(true);
+  const openTaskModal = (queue?: QueueOverviewItem) => {
+    taskForm.setFieldsValue({ queueId: queue?.queueId ?? overview?.queues[0]?.queueId, taskId: '' });
+    setTaskModalOpen(true);
   };
 
-  const updateQueueDraft = (field: keyof QueueDraft) => (event: ChangeEvent<HTMLInputElement>) => {
-    setQueueDraft((current) => ({ ...current, [field]: event.target.value }));
-  };
-
-  const submitQueue = async (event: FormEvent) => {
-    event.preventDefault();
-    const concurrency = Number(queueDraft.concurrency);
-    if (!Number.isInteger(concurrency) || concurrency < 1) {
-      notify('error', '并发上限必须是大于 0 的整数');
-      return;
-    }
+  const submitQueue = async (values: QueueFormValues) => {
     setSubmitting(true);
     try {
       await postJson('/waitqueue/queue/newQueue', {
-        namespace: queueDraft.namespace,
-        hookUrl: queueDraft.hookUrl,
-        currMaxCount: concurrency,
-        crontab: {
-          run: queueDraft.run,
-          check: queueDraft.check,
-          expire: queueDraft.expire,
-        },
+        namespace: values.namespace,
+        hookUrl: values.hookUrl,
+        currMaxCount: values.concurrency,
+        crontab: { run: values.run, check: values.check, expire: values.expire },
       });
-      notify('success', '队列配置已生效');
-      setQueueDialogOpen(false);
-      await loadOverview();
+      message.success('队列配置已生效');
+      setQueueModalOpen(false);
+      await refreshAll(true);
     } catch (reason) {
-      notify('error', reason instanceof Error ? reason.message : '保存队列失败');
+      message.error(reason instanceof Error ? reason.message : '保存队列失败');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const submitTask = async (event: FormEvent) => {
-    event.preventDefault();
-    const queue = overview?.queues.find((item) => String(item.queueId) === taskDraft.queueId);
+  const submitTask = async (values: TaskFormValues) => {
+    const queue = overview?.queues.find((item) => item.queueId === values.queueId);
     if (!queue) {
-      notify('error', '请选择一个有效队列');
+      message.error('请选择一个有效队列');
       return;
     }
     setSubmitting(true);
@@ -407,407 +566,430 @@ const Dashboard: NextPage = () => {
       await postJson('/waitqueue/scheduler/addTask', {
         namespace: queue.namespace,
         hookUrl: queue.hookUrl,
-        taskId: taskDraft.taskId,
+        taskId: values.taskId,
       });
-      notify('success', `任务 ${taskDraft.taskId} 已进入等待队列`);
-      setTaskDialogOpen(false);
-      await loadOverview();
+      message.success('任务已进入等待队列');
+      setTaskModalOpen(false);
+      await refreshAll(true);
     } catch (reason) {
-      notify('error', reason instanceof Error ? reason.message : '提交任务失败');
+      message.error(reason instanceof Error ? reason.message : '提交任务失败');
     } finally {
       setSubmitting(false);
     }
   };
 
+  const replayDeadLetter = (item: DeadLetterItem) => {
+    if (!activeQueue) return;
+    modal.confirm({
+      title: '确认重放这条死信？',
+      content: `队列 ${activeQueue.namespace} · 任务 ${item.taskId} · 已重试 ${item.retryCount} 次`,
+      okText: '重放并重新入队',
+      cancelText: '取消',
+      icon: <RedoOutlined />,
+      async onOk() {
+        try {
+          await postJson('/waitqueue/admin/deadLetters/replay', {
+            queueId: activeQueue.queueId,
+            taskId: item.taskId,
+            entryId: item.entryId,
+          });
+          message.success('死信已重新入队');
+          await Promise.all([refreshAll(true), loadDeadLetters(activeQueue.queueId, deadLetterPage)]);
+        } catch (reason) {
+          message.error(reason instanceof Error ? reason.message : '死信重放失败');
+          throw reason;
+        }
+      },
+    });
+  };
+
+  const menuItems: MenuProps['items'] = [
+    { key: 'overview', icon: <DashboardOutlined />, label: '总览' },
+    { key: 'queues', icon: <BarsOutlined />, label: '队列' },
+    { key: 'deadLetters', icon: <WarningOutlined />, label: '死信' },
+    { key: 'diagnostics', icon: <SafetyCertificateOutlined />, label: '诊断' },
+  ];
+
+  const queueColumns: TableColumnsType<QueueOverviewItem> = [
+    {
+      title: '队列 / 回调源',
+      key: 'queue',
+      width: 250,
+      fixed: 'left',
+      render: (_, queue) => (
+        <div className={styles.queueIdentity}>
+          <span>Q-{String(queue.queueId).padStart(3, '0')}</span>
+          <div>
+            <button type="button" onClick={() => setActiveQueueId(queue.queueId)}>{queue.namespace}</button>
+            <code title="敏感路径已隐藏">{displayHook(queue.hookUrl)}</code>
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: '状态',
+      key: 'state',
+      width: 110,
+      render: (_, queue) => {
+        const state = queueState(queue);
+        return <Tag color={state.color}>{state.label}</Tag>;
+      },
+    },
+    {
+      title: '积压 / 最老等待',
+      key: 'backlog',
+      width: 180,
+      render: (_, queue) => (
+        <div className={styles.tableMetric}>
+          <strong className={queue.waiting > 0 ? styles.warningText : undefined}>{queue.waiting}</strong>
+          <small><FieldTimeOutlined /> {formatAge(queue.oldestWaitingAgeSeconds, queue.waiting)}</small>
+        </div>
+      ),
+    },
+    {
+      title: '运行槽位',
+      key: 'capacity',
+      width: 170,
+      render: (_, queue) => (
+        <div className={styles.capacityCell}>
+          <span><b>{queue.running}</b> / {queue.concurrency}</span>
+          <Progress percent={Math.min(100, Math.max(0, queue.utilization))} showInfo={false} size="small" />
+        </div>
+      ),
+    },
+    {
+      title: 'Retry',
+      dataIndex: 'retrying',
+      width: 90,
+      align: 'right',
+      render: (value: number | undefined) => <b className={(value ?? 0) > 0 ? styles.warningText : undefined}>{metric(value)}</b>,
+    },
+    {
+      title: 'DLQ',
+      dataIndex: 'deadLetters',
+      width: 90,
+      align: 'right',
+      render: (value: number | undefined) => <b className={(value ?? 0) > 0 ? styles.dangerText : undefined}>{metric(value)}</b>,
+    },
+    {
+      title: '投递失败',
+      key: 'failures',
+      width: 110,
+      align: 'right',
+      render: (_, queue) => <b className={(queue.callbacks?.failure ?? 0) > 0 ? styles.dangerText : undefined}>{metric(queue.callbacks?.failure)}</b>,
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 128,
+      fixed: 'right',
+      render: (_, queue) => (
+        <Space size={4}>
+          <Tooltip title="提交任务"><Button aria-label={`向 ${queue.namespace} 提交任务`} icon={<SendOutlined />} onClick={() => openTaskModal(queue)} /></Tooltip>
+          <Tooltip title="编辑配置"><Button aria-label={`编辑 ${queue.namespace} 配置`} icon={<SettingOutlined />} onClick={() => openQueueModal(queue)} /></Tooltip>
+        </Space>
+      ),
+    },
+  ];
+
+  const deadLetterColumns: TableColumnsType<DeadLetterItem> = [
+    { title: '任务 ID', dataIndex: 'taskId', ellipsis: true, render: (value: string) => <code>{value}</code> },
+    { title: '失败原因', dataIndex: 'reason', width: 150, render: (value: DeadLetterItem['reason']) => <Tag color="error">{value === 'lease_expired' ? '租约过期' : '回调失败'}</Tag> },
+    { title: '重试次数', dataIndex: 'retryCount', width: 110, align: 'right' },
+    { title: '失败时间', dataIndex: 'failedAt', width: 180, render: formatTimestamp },
+    { title: '操作', key: 'action', width: 110, fixed: 'right', render: (_, item) => <Button icon={<RedoOutlined />} onClick={() => replayDeadLetter(item)}>重放</Button> },
+  ];
+
+  const catalog = (
+    <SidebarCatalog
+      overview={overview}
+      queues={queues}
+      activeQueueId={activeQueue?.queueId ?? null}
+      query={query}
+      onQuery={setQuery}
+      onSelect={(queueId) => {
+        setActiveQueueId(queueId);
+        setMobileCatalogOpen(false);
+      }}
+      onCreate={() => {
+        setMobileCatalogOpen(false);
+        openQueueModal();
+      }}
+    />
+  );
+
   return (
     <>
       <Head>
-        <title>WaitQueue Control Room</title>
-        <meta name="description" content="waitqueue.js 实时队列控制面" />
+        <title>WaitQueue Workbench</title>
+        <meta name="description" content="WaitQueue 实时调度与恢复工作台" />
       </Head>
-      {toast && (
-        <div
-          key={toast.id}
-          className={`${styles.toast} ${toast.tone === 'error' ? styles.toastError : styles.toastSuccess}`}
-          role={toast.tone === 'error' ? 'alert' : 'status'}
-          aria-live={toast.tone === 'error' ? 'assertive' : 'polite'}
-        >
-          <span aria-hidden="true">{toast.tone === 'error' ? '!' : '✓'}</span>
-          <strong>{toast.text}</strong>
-          <button type="button" onClick={() => setToast(null)} aria-label="关闭提示">
-            <Glyph>×</Glyph>
-          </button>
-        </div>
-      )}
-      <div className={styles.shell} data-dashboard-shell>
-        <header className={styles.topbar}>
+      <a className={styles.skipLink} href="#main-content">跳到主要内容</a>
+      <Layout className={styles.shell}>
+        <Header className={styles.topbar}>
           <div className={styles.brand}>
+            <Button className={styles.mobileMenu} type="text" icon={<MenuOutlined />} aria-label="打开队列目录" onClick={() => setMobileCatalogOpen(true)} />
             <span className={styles.brandMark} aria-hidden="true">&gt;_</span>
-            <div>
-              <strong>WaitQueue Backend</strong>
-              <small>wq v1.0</small>
-            </div>
+            <div><strong>WaitQueue Backend</strong><small>RUNTIME CONTROL PLANE</small></div>
           </div>
-
-          <div className={styles.workspaceTitle}>
-            <strong>运行控制台</strong>
-            <span>· Dashboard</span>
+          <div className={styles.workspace}><b>运行工作台</b><span>· Workbench</span></div>
+          <Menu
+            className={styles.topMenu}
+            mode="horizontal"
+            items={menuItems}
+            selectedKeys={[view]}
+            onClick={({ key }) => setView(key as ViewKey)}
+          />
+          <div className={styles.topMeta}>
+            <span>Queues <b>{metric(overview?.summary.queueCount)}</b></span>
+            <span>Open <b>{metric(overview?.summary.waiting)}</b></span>
+            {stateTag(currentServiceState)}
+            <Tooltip title={mode === 'light' ? '切换深色主题' : '切换浅色主题'}>
+              <Button type="text" icon={mode === 'light' ? <MoonOutlined /> : <SunOutlined />} aria-label="切换主题" onClick={toggleMode} />
+            </Tooltip>
           </div>
+        </Header>
 
-          <nav className={styles.productNav} aria-label="控制台导航">
-            <a className={styles.navActive} href="#workbench-title"><i aria-hidden="true">◎</i> 探索</a>
-            <a href="#queues-title"><i aria-hidden="true">▣</i> 队列</a>
-            <a href="#runtime-pulse"><i aria-hidden="true">∿</i> 调度</a>
-          </nav>
-
-          <div className={styles.topbarMeta}>
-            <span><i aria-hidden="true">◇</i> Queues <b>{overview?.summary.queueCount ?? '—'}</b></span>
-            <span><i aria-hidden="true">◇</i> Capacity <b>{overview?.summary.capacity ?? '—'}</b></span>
-            <div className={`${styles.serviceState} ${serviceTone}`} role="status" aria-live="polite">
-              <i className={styles.liveDot} aria-hidden="true" />
-              <span>{serviceState}</span>
-            </div>
-          </div>
-        </header>
-
-        <div className={styles.bodyGrid}>
-          <aside className={styles.sidebar} aria-label="队列目录">
-            <div className={styles.sidebarNumbers}>
-              <span><i aria-hidden="true">◇</i> {overview?.summary.queueCount ?? '—'} 队列</span>
-              <span><i aria-hidden="true">◉</i> {overview?.summary.running ?? '—'} 运行</span>
-              <span><i aria-hidden="true">◌</i> {overview?.summary.waiting ?? '—'} 等待</span>
-            </div>
-
-            <div className={styles.sidebarSearch}>
-              <span aria-hidden="true">⌕</span>
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search queues / hooks..."
-                aria-label="搜索队列"
-              />
-            </div>
-
-            <button className={styles.catalogButton} type="button" onClick={() => setQuery('')}>
-              <span className={styles.cubeGlyph} aria-hidden="true">◇</span>
-              <span>
-                <strong>完整目录</strong>
-                <small>{overview?.summary.queueCount ?? 0} queues · realtime</small>
-              </span>
-              <b>{overview?.summary.queueCount ?? '—'}</b>
-            </button>
-
-            <div className={styles.sidebarRule} />
-            <div className={styles.sidebarLabel}>
-              <span>⌘ &nbsp;SCHEDULER QUEUES</span>
-              <b>{queues.length}</b>
-            </div>
-
-            <nav className={styles.queueNav} aria-label="已注册队列">
-              {queues.map((queue) => {
-                const status = queueStatus(queue);
-                const selected = activeQueue?.queueId === queue.queueId;
-                return (
-                  <a
-                    key={queue.queueId}
-                    className={selected ? styles.queueNavActive : undefined}
-                    href={`#queue-${queue.queueId}`}
-                    aria-current={selected ? 'location' : undefined}
-                    onClick={() => setActiveQueueId(queue.queueId)}
-                  >
-                    <span className={`${styles.navQueueGlyph} ${status.tone}`} aria-hidden="true">◈</span>
-                    <span>
-                      <strong>{queue.namespace}</strong>
-                      <small>q-{String(queue.queueId).padStart(3, '0')} · {queue.running}/{queue.concurrency} slots</small>
-                    </span>
-                    <b>{queue.waiting}</b>
-                  </a>
-                );
-              })}
-            </nav>
-
-            <div className={styles.sidebarFoot}>
-              <span>AUTO REFRESH</span>
-              <strong>10 SEC</strong>
-              <small>Last sync {formatTimestamp(overview?.generatedAt)}</small>
-            </div>
-          </aside>
-
-          <main className={styles.main}>
+        <Layout className={styles.workspaceLayout}>
+          <Sider className={styles.sidebar} width={288} theme={mode}>{catalog}</Sider>
+          <Content id="main-content" className={styles.content} aria-busy={loading || refreshing}>
             {error && (
-              <div className={styles.alert} role="alert">
-                <div>
-                  <strong>{overview ? '数据已过期' : '控制面暂时离线'}</strong>
-                  <span>{error}</span>
-                </div>
-                <button type="button" onClick={() => void loadOverview(true)}>重新连接</button>
-              </div>
+              <Alert
+                className={styles.alert}
+                type={overview ? 'warning' : 'error'}
+                showIcon
+                message={overview ? '当前展示的是最后一次成功快照' : '控制面暂时离线'}
+                description={error}
+                action={<Button onClick={() => void refreshAll(true)}>重新连接</Button>}
+              />
             )}
 
             <section className={styles.hero} aria-labelledby="workbench-title">
-              <div className={styles.heroTitle}>
-                <span aria-hidden="true">&gt;_</span>
+              <div>
+                <span className={styles.heroPrompt} aria-hidden="true">&gt;_</span>
                 <h1 id="workbench-title">WaitQueue Workbench</h1>
-                <b>Runtime Queue Contract</b>
+                <Tag>Runtime Operations</Tag>
               </div>
-              <p>轻量任务调度 · Redis 实时快照 · 并发槽位控制</p>
+              <p>轻量队列状态 · Redis 运行快照 · Claim 恢复 · Dead Letter 运维</p>
+              <div className={styles.heroActions}>
+                <Button icon={<ReloadOutlined spin={refreshing} />} disabled={refreshing} onClick={() => void refreshAll(true)}>刷新快照</Button>
+                <Button type="primary" icon={<SendOutlined />} disabled={!activeQueue} onClick={() => openTaskModal(activeQueue ?? undefined)}>提交任务</Button>
+              </div>
             </section>
 
-            <section className={styles.summaryGrid} aria-label="调度摘要">
-              <article className={styles.summaryCard} id="runtime-pulse">
-                <div className={styles.cardHeading}>
-                  <span className={styles.cardIcon} aria-hidden="true">◎</span>
-                  <div>
-                    <h2>Runtime Pulse</h2>
-                    <p>当前容量、占用与等待状态</p>
-                  </div>
-                  <span className={styles.arrow} aria-hidden="true">→</span>
-                </div>
-                <div className={styles.metricStrip}>
-                  <span><small>QUEUES</small><strong>{overview?.summary.queueCount ?? '—'}</strong></span>
-                  <span><small>WAITING</small><strong>{overview?.summary.waiting ?? '—'}</strong></span>
-                  <span><small>RUNNING</small><strong>{overview?.summary.running ?? '—'}</strong></span>
-                  <span><small>CAPACITY</small><strong>{overview?.summary.capacity ?? '—'}</strong></span>
-                </div>
-                <div className={styles.metricBadges}>
-                  <span className={styles.mintBadge}>runtime {overview?.summary.running ?? 0}</span>
-                  <span>utilization {overview ? `${overview.summary.utilization}%` : '—'}</span>
-                </div>
-              </article>
+            <Segmented
+              className={styles.mobileViewNav}
+              block
+              value={view}
+              options={[
+                { label: '总览', value: 'overview', icon: <DashboardOutlined /> },
+                { label: '队列', value: 'queues', icon: <BarsOutlined /> },
+                { label: '死信', value: 'deadLetters', icon: <WarningOutlined /> },
+                { label: '诊断', value: 'diagnostics', icon: <SafetyCertificateOutlined /> },
+              ]}
+              onChange={(value) => setView(value as ViewKey)}
+              aria-label="工作台视图"
+            />
 
-              <article className={styles.summaryCard}>
-                <div className={styles.cardHeading}>
-                  <span className={styles.cardIcon} aria-hidden="true">✧</span>
-                  <div>
-                    <h2>调度工作台 · Control</h2>
-                    <p>队列注册、任务入队与运行同步</p>
-                  </div>
-                  <span className={styles.arrow} aria-hidden="true">→</span>
-                </div>
-                <div className={styles.actionRow}>
-                  <button className={`${styles.controlButton} ${styles.primaryButton}`} type="button" onClick={() => openQueueDialog()}>
-                    <Glyph>＋</Glyph>注册队列
-                  </button>
-                  <button className={styles.controlButton} type="button" disabled={!overview?.queues.length} onClick={() => openTaskDialog(activeQueue ?? undefined)}>
-                    <Glyph>▷</Glyph>提交任务
-                  </button>
-                  <button className={styles.controlButton} type="button" disabled={refreshing} aria-busy={refreshing} onClick={() => void loadOverview(true)}>
-                    <Glyph>↻</Glyph>{refreshing ? '刷新中' : '刷新'}
-                  </button>
-                  <button
-                    className={styles.themeButton}
-                    type="button"
-                    aria-label={theme === 'light' ? '切换到深色模式' : '切换到浅色模式'}
-                    onClick={() => setTheme((current) => (current === 'light' ? 'dark' : 'light'))}
-                  >
-                    <Glyph>{theme === 'light' ? '◒' : '☼'}</Glyph>
-                  </button>
-                </div>
-                <div className={styles.metricBadges}>
-                  <span>{overview?.summary.queueCount ?? 0} queues / {overview?.summary.capacity ?? 0} slots</span>
-                  <span className={error ? styles.errorBadge : styles.mintBadge}>{serviceState}</span>
-                </div>
-              </article>
-            </section>
+            {loading && !overview ? (
+              <div className={styles.initialSkeleton}><Skeleton active paragraph={{ rows: 10 }} /></div>
+            ) : (
+              <>
+                {(view === 'overview' || view === 'queues') && (
+                  <>
+                    <section className={styles.summaryGrid} aria-label="运行摘要">
+                      <Card className={styles.summaryCard} bordered title={<span><ThunderboltOutlined /> Runtime Pulse</span>} extra={<small>LIVE GAUGES</small>}>
+                        <div className={styles.metricGrid}>
+                          <Statistic title="当前积压" value={overview?.summary.waiting ?? '—'} suffix="tasks" />
+                          <Statistic title="最老等待" value={formatAge(overview?.summary.oldestWaitingAgeSeconds, overview?.summary.waiting)} />
+                          <Statistic title="运行 / 容量" value={overview ? `${overview.summary.running} / ${overview.summary.capacity}` : '—'} />
+                          <Statistic title="Retry" value={metric(overview?.summary.retrying)} valueStyle={(overview?.summary.retrying ?? 0) > 0 ? { color: '#d46b08' } : undefined} />
+                          <Statistic title="DLQ" value={metric(overview?.summary.deadLetters)} valueStyle={(overview?.summary.deadLetters ?? 0) > 0 ? { color: '#c9363e' } : undefined} />
+                          <div className={styles.utilizationMetric}>
+                            <small>容量利用率</small>
+                            <Progress type="circle" size={52} percent={overview?.summary.utilization ?? 0} />
+                          </div>
+                        </div>
+                      </Card>
 
-            {activeQueue && (
-              <section className={styles.focusBar} aria-label="当前队列">
-                <span className={styles.cubeGlyph} aria-hidden="true">◇</span>
-                <div>
-                  <small>CURRENT QUEUE</small>
-                  <strong>{activeQueue.namespace}</strong>
-                </div>
-                <code>{displayUrl(activeQueue.hookUrl)}</code>
-                <div className={styles.focusStats}>
-                  <span><b>{activeQueue.waiting}</b> waiting</span>
-                  <span><b>{activeQueue.running}</b> / {activeQueue.concurrency} running</span>
-                </div>
-                <button type="button" onClick={() => openQueueDialog(activeQueue)}><Glyph>✎</Glyph> 配置</button>
-              </section>
+                      <Card className={styles.summaryCard} bordered title={<span><SafetyCertificateOutlined /> Delivery & Recovery</span>} extra={<small>PROCESS COUNTERS</small>}>
+                        <div className={styles.deliveryGrid}>
+                          <div><small>CALLBACK OK</small><strong>{metric(overview?.summary.callbackSuccesses)}</strong></div>
+                          <div><small>CALLBACK FAILED</small><strong className={(overview?.summary.callbackFailures ?? 0) > 0 ? styles.dangerText : undefined}>{metric(overview?.summary.callbackFailures)}</strong></div>
+                          <div><small>CLAIMED</small><strong>{metric(overview?.summary.claims)}</strong></div>
+                          <div><small>RECOVERED</small><strong>{metric(overview?.summary.recovered)}</strong></div>
+                        </div>
+                        <div className={styles.counterNote}>
+                          <CodeOutlined /> 本进程观察累计，重启清零
+                          {overview?.metricsStartedAt && <span>· since {formatTimestamp(overview.metricsStartedAt)}</span>}
+                        </div>
+                      </Card>
+                    </section>
+
+                    {activeQueue && (
+                      <section className={styles.focusBar} aria-label="当前选中队列">
+                        <CloudServerOutlined />
+                        <div><small>CURRENT QUEUE · Q-{String(activeQueue.queueId).padStart(3, '0')}</small><strong>{activeQueue.namespace}</strong></div>
+                        <code>{displayHook(activeQueue.hookUrl)}</code>
+                        <div className={styles.focusMetrics}>
+                          <span><b>{activeQueue.waiting}</b> waiting</span>
+                          <span><b>{formatAge(activeQueue.oldestWaitingAgeSeconds, activeQueue.waiting)}</b> oldest</span>
+                          <span><b>{metric(activeQueue.retrying)}</b> retry</span>
+                          <span className={(activeQueue.deadLetters ?? 0) > 0 ? styles.dangerText : undefined}><b>{metric(activeQueue.deadLetters)}</b> DLQ</span>
+                        </div>
+                        <Space size={4}>
+                          <Button icon={<SendOutlined />} onClick={() => openTaskModal(activeQueue)}>任务</Button>
+                          <Button icon={<SettingOutlined />} onClick={() => openQueueModal(activeQueue)}>配置</Button>
+                        </Space>
+                      </section>
+                    )}
+
+                    <section className={styles.registryPanel} aria-labelledby="registry-title">
+                      <div className={styles.sectionHeader}>
+                        <div><h2 id="registry-title"><BarsOutlined /> Queue Registry</h2><p>真实运行快照 · 展开查看 Cron 和配置时间</p></div>
+                        <Tag>{queues.length} / {overview?.summary.queueCount ?? 0}</Tag>
+                      </div>
+                      {queues.length > 0 ? (
+                        <>
+                          <div className={styles.desktopTable}>
+                            <Table
+                              rowKey="queueId"
+                              columns={queueColumns}
+                              dataSource={queues}
+                              pagination={false}
+                              size="small"
+                              scroll={{ x: 1140 }}
+                              rowClassName={(queue) => queue.queueId === activeQueue?.queueId ? styles.activeTableRow : ''}
+                              expandable={{
+                                expandedRowRender: (queue) => (
+                                  <div className={styles.queueDetails}>
+                                    <span><b>RUN</b><code>{queue.crontab.run}</code></span>
+                                    <span><b>CHECK</b><code>{queue.crontab.check}</code></span>
+                                    <span><b>EXPIRE</b><code>{queue.crontab.expire}</code></span>
+                                    <span><b>UPDATED</b>{formatTimestamp(queue.updatedAt)}</span>
+                                  </div>
+                                ),
+                              }}
+                            />
+                          </div>
+                          <div className={styles.queueMobileList}>
+                            {queues.map((queue) => {
+                              const state = queueState(queue);
+                              return (
+                                <Card key={queue.queueId} size="small" title={queue.namespace} extra={<Tag color={state.color}>{state.label}</Tag>}>
+                                  <div className={styles.mobileMetricGrid}>
+                                    <span><small>WAITING</small><b>{queue.waiting}</b></span>
+                                    <span><small>OLDEST</small><b>{formatAge(queue.oldestWaitingAgeSeconds, queue.waiting)}</b></span>
+                                    <span><small>RETRY</small><b>{metric(queue.retrying)}</b></span>
+                                    <span><small>DLQ</small><b>{metric(queue.deadLetters)}</b></span>
+                                  </div>
+                                  <Progress percent={queue.utilization} size="small" format={() => `${queue.running}/${queue.concurrency}`} />
+                                  <Space><Button icon={<SendOutlined />} onClick={() => openTaskModal(queue)}>任务</Button><Button icon={<SettingOutlined />} onClick={() => openQueueModal(queue)}>配置</Button></Space>
+                                </Card>
+                              );
+                            })}
+                          </div>
+                        </>
+                      ) : (
+                        <Empty description={query ? '没有匹配的队列' : '还没有注册队列'}>
+                          {query ? <Button onClick={() => setQuery('')}>清除筛选</Button> : <Button type="primary" icon={<PlusOutlined />} onClick={() => openQueueModal()}>注册第一条队列</Button>}
+                        </Empty>
+                      )}
+                    </section>
+                  </>
+                )}
+
+                {view === 'deadLetters' && (
+                  <section className={styles.registryPanel} aria-labelledby="dlq-title">
+                    <div className={styles.sectionHeader}>
+                      <div><h2 id="dlq-title"><WarningOutlined /> Dead Letter Queue</h2><p>精确 generation 重放 · 失败时保留原记录</p></div>
+                      <Space>
+                        <Select
+                          aria-label="选择死信队列"
+                          value={activeQueue?.queueId}
+                          style={{ minWidth: 180 }}
+                          options={(overview?.queues ?? []).map((queue) => ({ value: queue.queueId, label: queue.namespace }))}
+                          onChange={(queueId) => setActiveQueueId(queueId)}
+                        />
+                        <Button icon={<ReloadOutlined />} loading={deadLetterLoading} disabled={!activeQueue} onClick={() => activeQueue && void loadDeadLetters(activeQueue.queueId, deadLetterPage)}>刷新</Button>
+                      </Space>
+                    </div>
+                    {activeQueue ? (
+                      <>
+                        <Alert className={styles.inlineInfo} type="info" showIcon message={`${activeQueue.namespace} · ${metric(activeQueue.deadLetters)} 条当前死信`} description="entryId 仅用于防止旧代际误重放，不会进入 Prometheus 标签或应用日志。" />
+                        <Table rowKey="entryId" columns={deadLetterColumns} dataSource={currentDeadLetters?.items ?? []} loading={deadLetterLoading} pagination={false} size="small" scroll={{ x: 760 }} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有死信" /> }} />
+                        {(currentDeadLetters?.total ?? 0) > DEAD_LETTER_PAGE_SIZE && (
+                          <Pagination
+                            className={styles.pagination}
+                            current={deadLetterPage}
+                            pageSize={DEAD_LETTER_PAGE_SIZE}
+                            total={currentDeadLetters?.total ?? 0}
+                            showSizeChanger={false}
+                            onChange={(page) => void loadDeadLetters(activeQueue.queueId, page)}
+                          />
+                        )}
+                      </>
+                    ) : <Empty description="先注册并选择一个队列" />}
+                  </section>
+                )}
+
+                {view === 'diagnostics' && (
+                  <section className={styles.diagnosticsGrid} aria-labelledby="diagnostics-title">
+                    <Card className={styles.diagnosticCard} title={<span id="diagnostics-title"><SafetyCertificateOutlined /> Service Diagnostics</span>}>
+                      <div className={styles.healthRows}>
+                        <div><span><CloudServerOutlined /> Process liveness</span>{health.live === null ? <Tag>UNKNOWN</Tag> : <Tag color={health.live ? 'success' : 'error'}>{health.live ? 'LIVE' : 'DOWN'}</Tag>}</div>
+                        <div><span><SafetyCertificateOutlined /> Dependency readiness</span>{health.ready === null ? <Tag>UNKNOWN</Tag> : <Tag color={health.ready ? 'success' : 'warning'}>{health.ready ? 'READY' : 'UNAVAILABLE'}</Tag>}</div>
+                        <div><span><DatabaseOutlined /> MySQL</span><Tag color={health.dependencies?.mysql === 'ok' ? 'success' : 'error'}>{health.dependencies?.mysql ?? 'unknown'}</Tag></div>
+                        <div><span><DatabaseOutlined /> Redis</span><Tag color={health.dependencies?.redis === 'ok' ? 'success' : 'error'}>{health.dependencies?.redis ?? 'unknown'}</Tag></div>
+                      </div>
+                      <small>Last probe · {formatTimestamp(health.checkedAt)}</small>
+                    </Card>
+                    <Card className={styles.diagnosticCard} title={<span><CodeOutlined /> Telemetry Contract</span>}>
+                      <ul className={styles.contractList}>
+                        <li>Prometheus：<code>/metrics</code>（服务端 Bearer 鉴权；不经浏览器代理）</li>
+                        <li>Gauge 来自约 1 秒缓存的 Redis / MySQL 运行快照。</li>
+                        <li>Counter 为本进程观察值，重启清零；多实例使用 <code>sum(rate())</code>。</li>
+                        <li>指标标签不包含 taskId、token、hookUrl 或异常消息。</li>
+                      </ul>
+                    </Card>
+                  </section>
+                )}
+              </>
             )}
 
-            <section className={styles.queuePanel} aria-labelledby="queues-title">
-              <div className={styles.queueToolbar}>
-                <div>
-                  <h2 id="queues-title"><span>⚡</span> Queue Registry</h2>
-                  <p>实时队列目录 · 点击操作完成任务入队或配置更新</p>
-                </div>
-                <span className={styles.resultCount}>{queues.length} / {overview?.summary.queueCount ?? 0}</span>
-              </div>
-
-              <div className={styles.tableWrap}>
-                <table className={styles.queueTable}>
-                  <caption className={styles.visuallyHidden}>已注册队列的实时运行状态、并发槽位与调度规则</caption>
-                  <thead>
-                    <tr>
-                      <th>队列 / 回调</th>
-                      <th>状态</th>
-                      <th>等待</th>
-                      <th>运行槽位</th>
-                      <th>调度规则</th>
-                      <th>操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {queues.map((queue) => {
-                      const status = queueStatus(queue);
-                      return (
-                        <tr id={`queue-${queue.queueId}`} key={queue.queueId} className={activeQueue?.queueId === queue.queueId ? styles.activeRow : undefined}>
-                          <td data-label="队列 / 回调">
-                            <div className={styles.queueIdentity}>
-                              <span className={styles.queueId}>Q-{String(queue.queueId).padStart(3, '0')}</span>
-                              <div>
-                                <button type="button" onClick={() => setActiveQueueId(queue.queueId)}>{queue.namespace}</button>
-                                <code title={displayUrl(queue.hookUrl)}>{displayUrl(queue.hookUrl)}</code>
-                              </div>
-                            </div>
-                          </td>
-                          <td data-label="状态">
-                            <span className={`${styles.queueStatus} ${status.tone}`}><i aria-hidden="true" /> {status.label}</span>
-                          </td>
-                          <td data-label="等待">
-                            <strong className={queue.waiting > 0 ? styles.waitingCount : undefined}>{queue.waiting}</strong>
-                            <small className={styles.cellCaption}>tasks</small>
-                          </td>
-                          <td data-label="运行槽位">
-                            <div className={styles.capacityValue}><strong>{queue.running}</strong><span>/ {queue.concurrency}</span></div>
-                            <CapacityTrack queue={queue} />
-                          </td>
-                          <td data-label="调度规则">
-                            <div className={styles.cronStack}>
-                              <code><b>RUN</b>{queue.crontab.run}</code>
-                              <code><b>CHK</b>{queue.crontab.check}</code>
-                              <code><b>EXP</b>{queue.crontab.expire}</code>
-                            </div>
-                          </td>
-                          <td data-label="操作">
-                            <div className={styles.rowActions}>
-                              <button type="button" onClick={() => openTaskDialog(queue)} title="提交任务" aria-label={`向 ${queue.namespace} 队列提交任务`}><Glyph>▷</Glyph></button>
-                              <button type="button" onClick={() => openQueueDialog(queue)} title="编辑配置" aria-label={`编辑 ${queue.namespace} 队列配置`}><Glyph>✎</Glyph></button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-
-                {loading && !overview && (
-                  <div className={styles.loadingState} aria-label="正在读取队列"><span /><span /><span /></div>
-                )}
-
-                {!loading && queues.length === 0 && (
-                  <div className={styles.emptyState}>
-                    <div className={styles.emptyGlyph}>∅</div>
-                    <strong>{query ? '没有匹配的队列' : '还没有注册队列'}</strong>
-                    <p>{query ? '换一个 namespace、URL 或队列 ID 试试。' : '注册第一条队列后，实时状态会出现在这里。'}</p>
-                    {!query && (
-                      <button className={`${styles.controlButton} ${styles.primaryButton}`} type="button" onClick={() => openQueueDialog()}>
-                        <Glyph>＋</Glyph>注册第一条队列
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </section>
-
             <footer className={styles.footer}>
-              <span><i aria-hidden="true">◇</i> DATA SOURCE · /waitqueue/admin/overview · AUTO REFRESH 10s</span>
-              <span>实时快照，不包含历史吞吐与成功率</span>
+              <span><DatabaseOutlined /> DATA SOURCE · /waitqueue/admin/overview · 10s</span>
+              <span>Snapshot {formatTimestamp(overview?.generatedAt)} · 不伪造趋势或历史成功率</span>
             </footer>
-          </main>
-        </div>
-      </div>
+          </Content>
+        </Layout>
+      </Layout>
 
-      {queueDialogOpen && (
-        <Dialog
-          title={editingQueueId === null ? '注册队列' : `编辑队列 Q-${String(editingQueueId).padStart(3, '0')}`}
-          eyebrow="QUEUE CONFIGURATION"
-          onClose={() => setQueueDialogOpen(false)}
-        >
-          <form className={styles.form} onSubmit={submitQueue}>
-            <div className={styles.formGrid}>
-              <label>
-                <span>Namespace</span>
-                <input required disabled={editingQueueId !== null} maxLength={64} value={queueDraft.namespace} onChange={updateQueueDraft('namespace')} placeholder="billing" />
-              </label>
-              <label>
-                <span>并发上限</span>
-                <input required type="number" min="1" max="1000" value={queueDraft.concurrency} onChange={updateQueueDraft('concurrency')} />
-              </label>
-            </div>
-            <label>
-              <span>Hook URL</span>
-              <input required disabled={editingQueueId !== null} type="url" maxLength={255} value={queueDraft.hookUrl} onChange={updateQueueDraft('hookUrl')} placeholder="http://worker.internal/callback" />
-            </label>
-            <div className={styles.ruleGroup}>
-              <span className={styles.ruleTitle}>CRON SCHEDULE</span>
-              <label>
-                <span>RUN</span>
-                <input required maxLength={64} value={queueDraft.run} onChange={updateQueueDraft('run')} />
-              </label>
-              <label>
-                <span>CHECK</span>
-                <input required maxLength={64} value={queueDraft.check} onChange={updateQueueDraft('check')} />
-              </label>
-              <label>
-                <span>EXPIRE</span>
-                <input required maxLength={64} value={queueDraft.expire} onChange={updateQueueDraft('expire')} />
-              </label>
-            </div>
-            <p className={styles.formHint}>
-              {editingQueueId === null
-                ? '相同 namespace + Hook URL 会更新现有队列配置。'
-                : '队列身份不可修改；保存后会更新并发上限与调度规则。'}
-            </p>
-            <div className={styles.dialogActions}>
-              <button className={styles.controlButton} type="button" onClick={() => setQueueDialogOpen(false)}>取消</button>
-              <button className={`${styles.controlButton} ${styles.primaryButton}`} type="submit" disabled={submitting} aria-busy={submitting}>
-                {submitting ? '保存中' : '保存配置'}
-              </button>
-            </div>
-          </form>
-        </Dialog>
-      )}
+      <Drawer title="Queue Catalog" placement="left" width="min(88vw, 320px)" open={mobileCatalogOpen} onClose={() => setMobileCatalogOpen(false)} styles={{ body: { padding: 0 } }}>{catalog}</Drawer>
 
-      {taskDialogOpen && (
-        <Dialog title="提交任务" eyebrow="ENQUEUE TASK" onClose={() => setTaskDialogOpen(false)}>
-          <form className={styles.form} onSubmit={submitTask}>
-            <label>
-              <span>目标队列</span>
-              <select
-                required
-                value={taskDraft.queueId}
-                onChange={(event) => setTaskDraft((current) => ({ ...current, queueId: event.target.value }))}
-              >
-                {(overview?.queues ?? []).map((queue) => (
-                  <option key={queue.queueId} value={queue.queueId}>
-                    Q-{String(queue.queueId).padStart(3, '0')} · {queue.namespace}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Task ID</span>
-              <input
-                required
-                maxLength={256}
-                value={taskDraft.taskId}
-                onChange={(event) => setTaskDraft((current) => ({ ...current, taskId: event.target.value }))}
-                placeholder="invoice-20260810-001"
-                data-dialog-autofocus
-              />
-            </label>
-            <p className={styles.formHint}>任务会进入 Redis waiting list，由对应队列的 RUN 周期领取。</p>
-            <div className={styles.dialogActions}>
-              <button className={styles.controlButton} type="button" onClick={() => setTaskDialogOpen(false)}>取消</button>
-              <button className={`${styles.controlButton} ${styles.primaryButton}`} type="submit" disabled={submitting} aria-busy={submitting}>
-                <Glyph>▷</Glyph>{submitting ? '提交中' : '进入队列'}
-              </button>
-            </div>
-          </form>
-        </Dialog>
-      )}
+      <Modal title={editingQueueId === null ? '注册队列' : `编辑队列 Q-${String(editingQueueId).padStart(3, '0')}`} open={queueModalOpen} onCancel={() => setQueueModalOpen(false)} footer={null} destroyOnHidden>
+        <Form form={queueForm} layout="vertical" initialValues={DEFAULT_QUEUE_VALUES} onFinish={submitQueue} requiredMark="optional">
+          <div className={styles.formGrid}>
+            <Form.Item name="namespace" label="Namespace" rules={[{ required: true, whitespace: true, max: 64 }]}><Input disabled={editingQueueId !== null} placeholder="billing" /></Form.Item>
+            <Form.Item name="concurrency" label="并发上限" rules={[{ required: true }]}><InputNumber min={1} max={1000} precision={0} style={{ width: '100%' }} /></Form.Item>
+          </div>
+          <Form.Item name="hookUrl" label="Hook URL" rules={[{ required: true, type: 'url', max: 255 }]} extra="回调路径可能包含敏感信息，列表只显示 origin。"><Input disabled={editingQueueId !== null} placeholder="https://worker.example/callback" /></Form.Item>
+          <div className={styles.cronFields}>
+            <Form.Item name="run" label="RUN cron" rules={[{ required: true, max: 64 }]}><Input /></Form.Item>
+            <Form.Item name="check" label="CHECK cron" rules={[{ required: true, max: 64 }]}><Input /></Form.Item>
+            <Form.Item name="expire" label="EXPIRE cron" rules={[{ required: true, max: 64 }]}><Input /></Form.Item>
+          </div>
+          <div className={styles.modalActions}><Button onClick={() => setQueueModalOpen(false)}>取消</Button><Button type="primary" htmlType="submit" loading={submitting}>{editingQueueId === null ? '注册队列' : '保存配置'}</Button></div>
+        </Form>
+      </Modal>
+
+      <Modal title="提交任务" open={taskModalOpen} onCancel={() => setTaskModalOpen(false)} footer={null} destroyOnHidden>
+        <Form form={taskForm} layout="vertical" onFinish={submitTask} requiredMark="optional">
+          <Form.Item name="queueId" label="目标队列" rules={[{ required: true }]}><Select options={(overview?.queues ?? []).map((queue) => ({ value: queue.queueId, label: `${queue.namespace} · Q-${queue.queueId}` }))} /></Form.Item>
+          <Form.Item name="taskId" label="Task ID" rules={[{ required: true, whitespace: true, max: 256 }]} extra="同一队列内，活跃 taskId 是幂等键。"><Input autoFocus placeholder="order-20260811-001" /></Form.Item>
+          <div className={styles.modalActions}><Button onClick={() => setTaskModalOpen(false)}>取消</Button><Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={submitting}>进入等待队列</Button></div>
+        </Form>
+      </Modal>
     </>
   );
 };

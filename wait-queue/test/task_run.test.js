@@ -9,6 +9,7 @@ const {
 	resolvePinnedCallbackAddresses,
 } = require('../dist/lib/task_run.js')
 const { HookUrlPolicy } = require('../dist/security/hook_url_policy.js')
+const { WaitQueueMetrics } = require('../dist/observability/metrics.js')
 
 function createContext() {
 	return {
@@ -210,4 +211,32 @@ test('default callback transport rejects oversized callback responses', async (t
 	)
 
 	await assert.rejects(taskRun.run('task-1'), /response exceeded the size limit/)
+})
+
+test('callback counters include only queue, type, and bounded outcomes', async () => {
+	const metrics = new WaitQueueMetrics()
+	const transport = async (_url, options) => {
+		const { type } = JSON.parse(options.body)
+		return type === 'run'
+			? { status: 200, body: '' }
+			: { status: 200, body: JSON.stringify({ data: { taskIds: [123] } }) }
+	}
+	const taskRun = new TaskRun(
+		createContext(),
+		'https://worker.example.com/private-hook',
+		7,
+		'billing',
+		undefined,
+		transport,
+		metrics
+	)
+
+	await taskRun.run('sensitive-task-id')
+	await assert.rejects(taskRun.checkTaskStatus(['sensitive-task-id']), /string array/)
+	const rendered = metrics.render([])
+
+	assert.match(rendered, /waitqueue_callback_attempts_total\{queue_id="7",type="run",outcome="success"\} 1/)
+	assert.match(rendered, /waitqueue_callback_attempts_total\{queue_id="7",type="check",outcome="failure"\} 1/)
+	assert.doesNotMatch(rendered, /namespace=/)
+	assert.doesNotMatch(rendered, /sensitive-task-id|private-hook|worker\.example\.com/)
 })

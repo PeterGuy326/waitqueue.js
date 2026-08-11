@@ -5,26 +5,34 @@ import {
 	validateDeadLetterQuery,
 	validateReplayDeadLetterInput,
 } from '../utils/validation'
+import { RuntimeSnapshotReader } from '../observability/runtime_snapshot'
+import { WaitQueueMetrics } from '../observability/metrics'
 
-const adminRoutes = new Router({ sensitive: true })
+export function createAdminRoutes(
+	runtimeSnapshotReader?: RuntimeSnapshotReader,
+	metrics?: WaitQueueMetrics
+): Router {
+	const routes = new Router({ sensitive: true })
 
-adminRoutes.get('/overview', async (ctx) => {
-	ctx.set('Cache-Control', 'no-store')
-	const result = await new AdminService(ctx).overview()
-	response.success(ctx, result)
-})
+	routes.get('/overview', async (ctx) => {
+		ctx.set('Cache-Control', 'no-store')
+		const result = await new AdminService(ctx, runtimeSnapshotReader, metrics).overview()
+		response.success(ctx, result)
+	})
 
-adminRoutes.get('/deadLetters', async (ctx) => {
-	ctx.set('Cache-Control', 'no-store')
-	const result = await new AdminService(ctx).deadLetters(validateDeadLetterQuery(ctx.query))
-	response.success(ctx, result)
-})
+	routes.get('/deadLetters', async (ctx) => {
+		ctx.set('Cache-Control', 'no-store')
+		const result = await new AdminService(ctx).deadLetters(validateDeadLetterQuery(ctx.query))
+		response.success(ctx, result)
+	})
 
-adminRoutes.post('/deadLetters/replay', async (ctx) => {
-	const result = await new AdminService(ctx).replayDeadLetter(
-		validateReplayDeadLetterInput(ctx.request.body)
-	)
-	response.success(ctx, result)
-})
+	routes.post('/deadLetters/replay', async (ctx) => {
+		const result = await new AdminService(ctx).replayDeadLetter(
+			validateReplayDeadLetterInput(ctx.request.body)
+		)
+		response.success(ctx, result)
+	})
+	return routes
+}
 
-export { adminRoutes }
+export const adminRoutes = createAdminRoutes()

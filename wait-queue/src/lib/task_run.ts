@@ -6,6 +6,7 @@ import { isIP } from 'node:net'
 import { Service } from './service'
 import { env } from '../conf/env'
 import { HookUrlPolicy } from '../security/hook_url_policy'
+import { waitQueueMetrics, WaitQueueMetrics } from '../observability/metrics'
 
 const MAX_CALLBACK_RESPONSE_BYTES = 1_048_576
 
@@ -133,6 +134,7 @@ export class TaskRun extends Service {
 	private namespace: string
 	private hookUrlPolicy: HookUrlPolicy
 	private callbackTransport: CallbackTransport
+	private metrics: WaitQueueMetrics
 
 	constructor(
 		ctx: Context,
@@ -142,7 +144,8 @@ export class TaskRun extends Service {
 		hookUrlPolicy: HookUrlPolicy = new HookUrlPolicy(env.security.hookUrlAllowlist, {
 			allowPrivate: env.security.allowPrivateHookUrls,
 		}),
-		callbackTransport: CallbackTransport = postCallback
+		callbackTransport: CallbackTransport = postCallback,
+		metrics: WaitQueueMetrics = waitQueueMetrics
 	) {
 		super(ctx)
 		this.url = url
@@ -150,10 +153,11 @@ export class TaskRun extends Service {
 		this.namespace = namespace
 		this.hookUrlPolicy = hookUrlPolicy
 		this.callbackTransport = callbackTransport
+		this.metrics = metrics
 	}
 
 	async run(taskId: string): Promise<void> {
-		await this._run(taskId)
+		await this.observeCallback(TASK_TYPE_CODE.run, () => this._run(taskId))
 	}
 
 	private async _run(taskId: string): Promise<void> {
@@ -166,14 +170,32 @@ export class TaskRun extends Service {
 	 */
 	async checkTaskStatus(taskIds: string[]): Promise<string[]> {
 		if (!taskIds?.length) return []
-		return this.taskIdsFromResponse(await this._fetch(TASK_TYPE_CODE.check, taskIds), TASK_TYPE_CODE.check)
+		return this.observeCallback(TASK_TYPE_CODE.check, async () =>
+			this.taskIdsFromResponse(
+				await this._fetch(TASK_TYPE_CODE.check, taskIds),
+				TASK_TYPE_CODE.check
+			)
+		)
 	}
 
 	/**
 	 * @returns 返回长时间未有结果的任务 id
 	 */
 	async expireTasks(): Promise<string[]> {
-		return this.taskIdsFromResponse(await this._fetch(TASK_TYPE_CODE.expire), TASK_TYPE_CODE.expire)
+		return this.observeCallback(TASK_TYPE_CODE.expire, async () =>
+			this.taskIdsFromResponse(await this._fetch(TASK_TYPE_CODE.expire), TASK_TYPE_CODE.expire)
+		)
+	}
+
+	private async observeCallback<T>(type: TASK_TYPE_CODE, callback: () => Promise<T>): Promise<T> {
+		try {
+			const result = await callback()
+			this.metrics.recordCallback(this.queueId, type, 'success')
+			return result
+		} catch (error) {
+			this.metrics.recordCallback(this.queueId, type, 'failure')
+			throw error
+		}
 	}
 
 	private taskIdsFromResponse(response: any, type: TASK_TYPE_CODE): string[] {

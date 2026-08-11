@@ -5,7 +5,7 @@ import bodyParser from 'koa-bodyparser'
 import { CronJob } from 'cron'
 import { createQueueRoutes } from './routes/queue'
 import { createSchedulerRoutes } from './routes/scheduler'
-import { adminRoutes } from './routes/admin'
+import { createAdminRoutes } from './routes/admin'
 import { errorHandler } from './middleware/error_handler'
 import { auditMiddleware, createBearerAuth, createRateLimit } from './middleware/security'
 import response from './utils/response'
@@ -29,6 +29,16 @@ import {
 } from './security/config'
 import { FixedWindowRateLimiter } from './security/rate_limit'
 import { HookUrlPolicy } from './security/hook_url_policy'
+import { QueueDao } from './dao/queue_dao'
+import {
+	PROMETHEUS_CONTENT_TYPE,
+	waitQueueMetrics,
+	WaitQueueMetrics,
+} from './observability/metrics'
+import {
+	CoalescedRuntimeSnapshotReader,
+	RuntimeSnapshotReader,
+} from './observability/runtime_snapshot'
 
 const warnSecurityConfiguration = createSecurityConfigurationWarner(logger)
 
@@ -37,12 +47,18 @@ export interface CreateAppOptions {
 	security?: SecurityConfigInput
 	rateLimitClock?: () => number
 	requestLogStream?: NodeJS.WritableStream
+	metrics?: WaitQueueMetrics
+	runtimeSnapshotReader?: RuntimeSnapshotReader
 }
 
 export function createApp(options: CreateAppOptions = {}): Koa {
 	const app = new Koa()
 	const readinessCheck = options.readinessCheck ?? createReadinessCheck()
 	const security = createSecurityConfig(options.security ?? env.security)
+	const metrics = options.metrics ?? waitQueueMetrics
+	const runtimeSnapshotReader =
+		options.runtimeSnapshotReader ??
+		new CoalescedRuntimeSnapshotReader(redisCli.getInstance()).read
 	const hookUrlPolicy = new HookUrlPolicy(security.hookUrlAllowlist, {
 		allowPrivate: security.allowPrivateHookUrls,
 	})
@@ -78,9 +94,9 @@ export function createApp(options: CreateAppOptions = {}): Koa {
 		}
 	})
 
-	const router = new Router({ prefix: '/waitqueue', sensitive: true })
-	router.get('/health', (ctx) => response.success(ctx, { status: 'ok' }))
-	router.get('/ready', async (ctx) => {
+	const router = new Router({ sensitive: true })
+	const livenessHandler = (ctx: Koa.Context) => response.success(ctx, { status: 'ok' })
+	const readinessHandler = async (ctx: Koa.Context) => {
 		ctx.set('Cache-Control', 'no-store')
 		let readiness: ReadinessResult = {
 			ready: false,
@@ -101,10 +117,30 @@ export function createApp(options: CreateAppOptions = {}): Koa {
 			return
 		}
 		response.success(ctx, { status: 'ready', dependencies: readiness.dependencies })
-	})
-	router.use('/admin', adminRoutes.routes())
-	router.use('/scheduler', createSchedulerRoutes(hookUrlPolicy).routes())
-	router.use('/queue', createQueueRoutes(hookUrlPolicy).routes())
+	}
+	const metricsHandler = async (ctx: Koa.Context) => {
+		ctx.set('Cache-Control', 'no-store')
+		ctx.set('Content-Type', PROMETHEUS_CONTENT_TYPE)
+		const queues = await QueueDao.findAll({
+			attributes: ['id', 'namespace'],
+			order: [['id', 'ASC']],
+		})
+		ctx.body = metrics.render(await runtimeSnapshotReader(queues))
+	}
+
+	// Standard probe/scrape paths are canonical. Namespaced aliases keep all
+	// existing clients and the same-origin dashboard proxy backward compatible.
+	router.get('/health/live', livenessHandler)
+	router.get('/health/ready', readinessHandler)
+	router.get('/metrics', metricsHandler)
+	router.get('/waitqueue/health', livenessHandler)
+	router.get('/waitqueue/health/live', livenessHandler)
+	router.get('/waitqueue/ready', readinessHandler)
+	router.get('/waitqueue/health/ready', readinessHandler)
+	router.get('/waitqueue/metrics', metricsHandler)
+	router.use('/waitqueue/admin', createAdminRoutes(runtimeSnapshotReader, metrics).routes())
+	router.use('/waitqueue/scheduler', createSchedulerRoutes(hookUrlPolicy).routes())
+	router.use('/waitqueue/queue', createQueueRoutes(hookUrlPolicy).routes())
 
 	app.use(router.routes())
 	app.use(

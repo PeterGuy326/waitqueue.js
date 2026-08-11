@@ -7,11 +7,15 @@ const { createApp } = require('../dist/app.js')
 const { QueueDao } = require('../dist/dao/queue_dao.js')
 const { redisCli } = require('../dist/conf/redis.js')
 const { RedisTaskStore } = require('../dist/reliability/task_store.js')
+const { WaitQueueMetrics } = require('../dist/observability/metrics.js')
 
 test('admin overview aggregates queue configuration and live Redis counts', async (t) => {
 	const redis = redisCli.getInstance()
 	const originalFindAll = QueueDao.findAll
 	const originalPipeline = redis.pipeline
+	const originalDateNow = Date.now
+	const now = 1_786_406_400_000
+	Date.now = () => now
 	QueueDao.findAll = async () => [
 		{
 			id: 7,
@@ -24,7 +28,9 @@ test('admin overview aggregates queue configuration and live Redis counts', asyn
 			updatedTime: '2026-08-10T08:00:00.000Z',
 		},
 	]
+	let pipelineNumber = 0
 	redis.pipeline = () => {
+		pipelineNumber += 1
 		const commands = []
 		return {
 			llen(key) {
@@ -35,24 +41,57 @@ test('admin overview aggregates queue configuration and live Redis counts', asyn
 				commands.push(['hlen', key])
 				return this
 			},
+			zcard(key) {
+				commands.push(['zcard', key])
+				return this
+			},
+			lindex(key, index) {
+				commands.push(['lindex', key, index])
+				return this
+			},
+			hget(key, field) {
+				commands.push(['hget', key, field])
+				return this
+			},
 			async exec() {
+				if (pipelineNumber === 1) {
+					assert.deepEqual(commands, [
+						['llen', 'TaskQueue:billing:7:waitingQueue'],
+						['llen', 'TaskQueue:billing:7:reliabilityMigrationWaitingV1'],
+						['hlen', 'TaskQueue:billing:7:runningHashKv'],
+						['zcard', 'TaskQueue:billing:7:retryScheduleZset'],
+						['zcard', 'TaskQueue:billing:7:deadLetterZset'],
+						['lindex', 'TaskQueue:billing:7:waitingQueue', -1],
+						['lindex', 'TaskQueue:billing:7:reliabilityMigrationWaitingV1', -1],
+					])
+					return [
+						[null, 3],
+						[null, 0],
+						[null, 2],
+						[null, 1],
+						[null, 2],
+						[null, 'oldest-task-never-returned'],
+						[null, null],
+					]
+				}
 				assert.deepEqual(commands, [
-					['llen', 'TaskQueue:billing:7:waitingQueue'],
-					['hlen', 'TaskQueue:billing:7:runningHashKv'],
+					[
+						'hget',
+						'TaskQueue:billing:7:enqueuedAtHashKv',
+						'oldest-task-never-returned',
+					],
 				])
-				return [
-					[null, 3],
-					[null, 2],
-				]
+				return [[null, now - 12_000]]
 			},
 		}
 	}
 	t.after(() => {
 		QueueDao.findAll = originalFindAll
 		redis.pipeline = originalPipeline
+		Date.now = originalDateNow
 	})
 
-	const server = createApp().listen(0, '127.0.0.1')
+	const server = createApp({ metrics: new WaitQueueMetrics() }).listen(0, '127.0.0.1')
 	await once(server, 'listening')
 	t.after(() => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))))
 
@@ -65,10 +104,19 @@ test('admin overview aggregates queue configuration and live Redis counts', asyn
 	assert.equal(apiResponse.headers.get('cache-control'), 'no-store')
 	assert.equal(body.code, 0)
 	assert.equal(typeof body.data.generatedAt, 'string')
+	assert.equal(typeof body.data.metricsStartedAt, 'string')
 	assert.deepEqual(body.data.summary, {
 		queueCount: 1,
 		waiting: 3,
 		running: 2,
+		retrying: 1,
+		deadLetters: 2,
+		oldestWaitingAt: new Date(now - 12_000).toISOString(),
+		oldestWaitingAgeSeconds: 12,
+		callbackSuccesses: 0,
+		callbackFailures: 0,
+		claims: 0,
+		recovered: 0,
 		capacity: 4,
 		utilization: 50,
 	})
@@ -80,6 +128,12 @@ test('admin overview aggregates queue configuration and live Redis counts', asyn
 			concurrency: 4,
 			waiting: 3,
 			running: 2,
+			retrying: 1,
+			deadLetters: 2,
+			oldestWaitingAt: new Date(now - 12_000).toISOString(),
+			oldestWaitingAgeSeconds: 12,
+			callbacks: { success: 0, failure: 0 },
+			claims: { claimed: 0, recovered: 0 },
 			available: 2,
 			utilization: 50,
 			crontab: {
@@ -90,6 +144,53 @@ test('admin overview aggregates queue configuration and live Redis counts', asyn
 			updatedAt: '2026-08-10T08:00:00.000Z',
 		},
 	])
+})
+
+test('admin overview distinguishes an empty queue from a task that just started waiting', async (t) => {
+	const originalFindAll = QueueDao.findAll
+	QueueDao.findAll = async () => [
+		{
+			id: 7,
+			namespace: 'billing',
+			url: 'https://worker.example.com/callback',
+			count: 1,
+			runCrontab: '* * * * * *',
+			checkCrontab: '* * * * * *',
+			expireCrontab: '* * * * * *',
+			updatedTime: '2026-08-10T08:00:00.000Z',
+		},
+	]
+	t.after(() => {
+		QueueDao.findAll = originalFindAll
+	})
+	const metrics = new WaitQueueMetrics(() => Date.parse('2026-08-10T07:00:00.000Z'))
+	const server = createApp({
+		metrics,
+		runtimeSnapshotReader: async () => [
+			{
+				queueId: 7,
+				namespace: 'billing',
+				waiting: 0,
+				running: 0,
+				retrying: 0,
+				deadLetters: 0,
+				oldestWaitingAt: null,
+				oldestWaitingAgeSeconds: null,
+			},
+		],
+	}).listen(0, '127.0.0.1')
+	await once(server, 'listening')
+	t.after(() => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))))
+	const address = server.address()
+	assert.ok(address && typeof address === 'object')
+	const response = await fetch(`http://127.0.0.1:${address.port}/waitqueue/admin/overview`)
+	const overview = (await response.json()).data
+
+	assert.equal(overview.metricsStartedAt, '2026-08-10T07:00:00.000Z')
+	assert.equal(overview.summary.oldestWaitingAt, null)
+	assert.equal(overview.summary.oldestWaitingAgeSeconds, null)
+	assert.equal(overview.queues[0].oldestWaitingAt, null)
+	assert.equal(overview.queues[0].oldestWaitingAgeSeconds, null)
 })
 
 test('admin dead letter APIs query a queue and replay an exact generation', async (t) => {
