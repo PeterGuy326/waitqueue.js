@@ -1,0 +1,339 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 24.18.0
+  PNPM_VERSION: 8.15.9
+
+jobs:
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: false
+
+      - name: Activate pnpm
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          corepack enable
+          corepack prepare "pnpm@${PNPM_VERSION}" --activate
+
+      - name: Locate pnpm store
+        id: pnpm-store
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore pnpm store
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-pnpm-${{ env.PNPM_VERSION }}-backend-${{ hashFiles('wait-queue/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-pnpm-${{ env.PNPM_VERSION }}-backend-
+
+      - name: Install backend dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          corepack pnpm --dir wait-queue install --frozen-lockfile
+
+      - name: Run backend tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          corepack pnpm --dir wait-queue test
+
+  dashboard-typecheck:
+    name: Dashboard typecheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: false
+
+      - name: Activate pnpm
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          corepack enable
+          corepack prepare "pnpm@${PNPM_VERSION}" --activate
+
+      - name: Locate pnpm store
+        id: pnpm-store
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore pnpm store
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-pnpm-${{ env.PNPM_VERSION }}-dashboard-${{ hashFiles('admin-dashboard/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-pnpm-${{ env.PNPM_VERSION }}-dashboard-
+
+      - name: Install dashboard dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          corepack pnpm --dir admin-dashboard install --frozen-lockfile
+
+      - name: Run dashboard typecheck
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          corepack pnpm --dir admin-dashboard typecheck
+
+  production-build:
+    name: Production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: false
+
+      - name: Activate pnpm
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          corepack enable
+          corepack prepare "pnpm@${PNPM_VERSION}" --activate
+
+      - name: Locate pnpm store
+        id: pnpm-store
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore pnpm store
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-pnpm-${{ env.PNPM_VERSION }}-all-${{ hashFiles('wait-queue/pnpm-lock.yaml', 'admin-dashboard/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-pnpm-${{ env.PNPM_VERSION }}-all-
+
+      - name: Install all dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          corepack pnpm install:all
+
+      - name: Build production artifacts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          corepack pnpm build
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: false
+
+      - name: Activate pnpm
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          corepack enable
+          corepack prepare "pnpm@${PNPM_VERSION}" --activate
+
+      - name: Audit backend production dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          corepack pnpm --dir wait-queue audit --prod --audit-level high
+
+      - name: Audit dashboard production dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          corepack pnpm --dir admin-dashboard audit --prod --audit-level high
+
+  compose-smoke:
+    name: Compose smoke
+    needs:
+      - backend-tests
+      - dashboard-typecheck
+      - production-build
+      - dependency-audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      COMPOSE_PROJECT_NAME: waitqueue-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      BIND_ADDRESS: 127.0.0.1
+      API_PORT: 3000
+      DASHBOARD_PORT: 3001
+      DB_DATABASE: waitqueue_ci
+      DB_USER: waitqueue_ci
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Create ephemeral database credentials
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          db_password="$(openssl rand -hex 24)"
+          db_root_password="$(openssl rand -hex 24)"
+          echo "::add-mask::$db_password"
+          echo "::add-mask::$db_root_password"
+          {
+            echo "DB_PASSWORD=$db_password"
+            echo "DB_ROOT_PASSWORD=$db_root_password"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate Compose configuration
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker compose config --quiet
+
+      - name: Build and start the stack
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker compose up --build --detach --wait --wait-timeout 300
+
+      - name: Verify HTTP health endpoints
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          health_json="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 2 \
+            "http://127.0.0.1:${API_PORT}/waitqueue/health")"
+          jq --exit-status \
+            '.code == 0 and .data.status == "ok"' \
+            <<< "$health_json" > /dev/null
+
+          ready_json="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 2 \
+            "http://127.0.0.1:${API_PORT}/waitqueue/ready")"
+          jq --exit-status \
+            '.code == 0 and .data.status == "ready" and .data.dependencies.mysql == "ok" and .data.dependencies.redis == "ok"' \
+            <<< "$ready_json" > /dev/null
+
+          dashboard_html="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 2 \
+            "http://127.0.0.1:${DASHBOARD_PORT}/")"
+          grep --fixed-strings --quiet 'WaitQueue Control Room' <<< "$dashboard_html"
+
+      - name: Verify migration history and idempotency
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          expected_count=0
+          while IFS= read -r migration_path; do
+            migration_name="${migration_path##*/}"
+            if [[ "$migration_name" =~ ^V[1-9][0-9]*__.+\.sql$ ]]; then
+              expected_count=$((expected_count + 1))
+            fi
+          done < <(find wait-queue/sql -maxdepth 1 -type f -print)
+
+          if (( expected_count == 0 )); then
+            echo "No versioned migrations were discovered" >&2
+            exit 1
+          fi
+
+          before_count="$(docker compose exec -T mysql sh -eu -c '
+            MYSQL_PWD="$MYSQL_PASSWORD" mysql \
+              --batch --skip-column-names \
+              --user="$MYSQL_USER" "$MYSQL_DATABASE" \
+              --execute="SELECT COUNT(*) FROM waitqueue_schema_migrations"
+          ')"
+
+          if [[ "$before_count" != "$expected_count" ]]; then
+            echo "Expected $expected_count migration records, found $before_count" >&2
+            exit 1
+          fi
+
+          rerun_output="$(docker compose run --rm --no-deps -T migrate)"
+          printf '%s\n' "$rerun_output"
+
+          if ! grep --extended-regexp --quiet '"applied":0([,}])' <<< "$rerun_output"; then
+            echo "The idempotency run did not report zero applied migrations" >&2
+            exit 1
+          fi
+
+          after_count="$(docker compose exec -T mysql sh -eu -c '
+            MYSQL_PWD="$MYSQL_PASSWORD" mysql \
+              --batch --skip-column-names \
+              --user="$MYSQL_USER" "$MYSQL_DATABASE" \
+              --execute="SELECT COUNT(*) FROM waitqueue_schema_migrations"
+          ')"
+
+          if [[ "$after_count" != "$before_count" ]]; then
+            echo "Migration history changed on the idempotency run" >&2
+            exit 1
+          fi
+
+      - name: Print diagnostics on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker compose ps --all || true
+          docker compose logs --no-color --timestamps || true
+
+      - name: Remove CI stack and volumes
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker compose down --volumes --remove-orphans --timeout 20

@@ -1,5 +1,7 @@
 # waitqueue.js
 
+[![CI](https://github.com/PeterGuy326/waitqueue.js/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/PeterGuy326/waitqueue.js/actions/workflows/ci.yml)
+
 一个轻量的 HTTP 回调任务队列与并发调度器。业务系统只提交 `taskId`；WaitQueue 负责排队、并发占位和周期检查，真正的任务仍由业务回调服务执行。
 
 ![WaitQueue Control Room](docs/control-room.jpg)
@@ -242,6 +244,29 @@ curl -X POST http://127.0.0.1:3000/waitqueue/scheduler/addTask \
 Docker Compose 与这些快捷命令都会自动读取项目根目录的 `.env`。共享环境请先从 `.env.docker.example` 复制并修改，后续的 `up`、`logs`、`down` 和 `--profile demo` 会持续使用同一份配置，避免重建时回退到本地默认凭据。
 
 `wait-queue test` 会先重新编译，再使用 Node.js 内置 test runner 执行全部契约测试。
+
+## CI 与贡献
+
+所有提交到 `master` 的 push 和面向 `master` 的 Pull Request 都会运行以下稳定检查：
+
+- `Backend tests`：安装后端锁定依赖并执行全部 Node.js 契约测试；
+- `Dashboard typecheck`：独立安装控制台锁定依赖并执行 Next.js 类型生成与 TypeScript 检查；
+- `Production build`：使用 Node.js 24.18.0 与 pnpm 8.15.9 构建前后端生产制品；
+- `Dependency audit`：阻止前后端生产依赖中的 high / critical 已知漏洞；
+- `Compose smoke`：等待以上四项并行检查通过后，在隔离的 Compose 项目和临时数据库凭据下启动完整栈，检查 API 存活/就绪、控制台可访问、迁移记录完整且重复迁移幂等，结束后删除测试容器与卷。
+
+提交 PR 前建议先在仓库根目录运行：
+
+```bash
+corepack pnpm install:all
+corepack pnpm test
+corepack pnpm build
+corepack pnpm --dir wait-queue audit --prod --audit-level high
+corepack pnpm --dir admin-dashboard audit --prod --audit-level high
+docker compose config --quiet
+```
+
+仓库管理员应在 GitHub `Settings → Branches → master` 的保护规则中启用 **Require status checks to pass before merging**，将 `Backend tests`、`Dashboard typecheck`、`Production build`、`Dependency audit` 与 `Compose smoke` 设为 required checks，并启用 **Require branches to be up to date before merging**。这样只有基于最新主干且全部检查通过的 PR 才能合入；CI 仅申请 `contents: read` 权限，不会发布制品或改写仓库。
 
 ## 配置
 
