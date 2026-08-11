@@ -5,7 +5,9 @@ const {
 	DEFAULT_QUEUE_CONCURRENCY,
 	DEFAULT_QUEUE_CRONTAB,
 	validateAddTaskInput,
+	validateDeadLetterQuery,
 	validateNewQueueInput,
+	validateReplayDeadLetterInput,
 } = require('../dist/utils/validation.js')
 const { HttpError } = require('../dist/utils/http_error.js')
 
@@ -103,5 +105,46 @@ test('add task validation rejects invalid URLs and task ids', () => {
 	assertBadRequest(
 		() => validateAddTaskInput({ ...base, hookUrl: 'redis://worker/tasks', taskId: 'task-1' }),
 		/valid HTTP\(S\) URL/
+	)
+})
+
+test('dead letter query validation normalizes pagination and enforces bounds', () => {
+	assert.deepEqual(validateDeadLetterQuery({ queueId: '7' }), {
+		queueId: 7,
+		offset: 0,
+		limit: 50,
+	})
+	assert.deepEqual(validateDeadLetterQuery({ queueId: 7, offset: '25', limit: '100' }), {
+		queueId: 7,
+		offset: 25,
+		limit: 100,
+	})
+	for (const query of [
+		{},
+		{ queueId: '0' },
+		{ queueId: '7', offset: '-1' },
+		{ queueId: '7', limit: '101' },
+		{ queueId: '7', limit: ['10'] },
+	]) {
+		assertBadRequest(() => validateDeadLetterQuery(query), /queueId|offset|limit/)
+	}
+})
+
+test('dead letter replay validation requires a generation-safe entry id', () => {
+	assert.deepEqual(
+		validateReplayDeadLetterInput({
+			queueId: 7,
+			taskId: ' task-1 ',
+			entryId: ' 33d443d1-17aa-45c7-958a-f21b39b25ea2 ',
+		}),
+		{
+			queueId: 7,
+			taskId: 'task-1',
+			entryId: '33d443d1-17aa-45c7-958a-f21b39b25ea2',
+		}
+	)
+	assertBadRequest(
+		() => validateReplayDeadLetterInput({ queueId: 7, taskId: 'task-1', entryId: 'bad entry' }),
+		/entryId/
 	)
 })

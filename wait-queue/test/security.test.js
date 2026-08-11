@@ -5,8 +5,8 @@ const { Writable } = require('node:stream')
 
 const { createApp } = require('../dist/app.js')
 const { QueueDao } = require('../dist/dao/queue_dao.js')
-const { redisCli } = require('../dist/conf/redis.js')
 const { Timer } = require('../dist/lib/timer.js')
+const { RedisTaskStore } = require('../dist/reliability/task_store.js')
 const {
 	createSecurityConfigurationWarner,
 	createSecurityConfig,
@@ -290,20 +290,19 @@ test('hook URL policy rejects credentials and non-allowlisted origins at request
 test('audit logs use final statuses and redact credentials and callback identifiers', async (t) => {
 	const originalFindOne = QueueDao.findOne
 	const originalFindOrCreate = QueueDao.findOrCreate
-	const redis = redisCli.getInstance()
-	const originalLpush = redis.lpush
+	const originalEnqueue = RedisTaskStore.prototype.enqueue
 	const originalInitializeQueueList = Timer.prototype.initializeQueueList
 	let timerHookUrlPolicy
 	QueueDao.findOne = async () => ({ id: 7, namespace: 'billing' })
 	QueueDao.findOrCreate = async () => [{ id: 7, async update() {} }, true]
-	redis.lpush = async () => 1
+	RedisTaskStore.prototype.enqueue = async () => true
 	Timer.prototype.initializeQueueList = async function () {
 		timerHookUrlPolicy = this.hookUrlPolicy
 	}
 	t.after(() => {
 		QueueDao.findOne = originalFindOne
 		QueueDao.findOrCreate = originalFindOrCreate
-		redis.lpush = originalLpush
+		RedisTaskStore.prototype.enqueue = originalEnqueue
 		Timer.prototype.initializeQueueList = originalInitializeQueueList
 	})
 

@@ -5,7 +5,16 @@ import { Service } from '../lib/service'
 import { QueueAttributes, QueueDao } from '../dao/queue_dao'
 import { redisCli } from '../conf/redis'
 import { getRunningKey, getWaitingKey } from '../common/cache'
-import { QueueOverview, QueueOverviewItem } from '../types/api'
+import {
+	DeadLetterQuery,
+	OperationResult,
+	QueueOverview,
+	QueueOverviewItem,
+	ReplayDeadLetterRequest,
+} from '../types/api'
+import { RedisTaskStore, DeadLetterPage } from '../reliability/task_store'
+import { env } from '../conf/env'
+import { HttpError } from '../utils/http_error'
 
 function percentage(value: number, total: number): number {
 	if (total === 0) return 0
@@ -29,6 +38,38 @@ export class AdminService extends Service {
 		super(ctx)
 		this.queueDao = QueueDao
 		this.redis = redisCli.getInstance()
+	}
+
+	private async queueById(queueId: number): Promise<QueueAttributes> {
+		const queue = await this.queueDao.findByPk(queueId, {
+			attributes: ['id', 'namespace'],
+		})
+		if (!queue) throw new HttpError(404, 'queue not found')
+		return queue
+	}
+
+	async deadLetters(query: DeadLetterQuery): Promise<DeadLetterPage> {
+		const queue = await this.queueById(query.queueId)
+		return new RedisTaskStore(
+			this.redis,
+			queue.namespace,
+			queue.id,
+			env.reliability
+		).listDeadLetters(query.offset, query.limit)
+	}
+
+	async replayDeadLetter(input: ReplayDeadLetterRequest): Promise<OperationResult> {
+		const queue = await this.queueById(input.queueId)
+		const result = await new RedisTaskStore(
+			this.redis,
+			queue.namespace,
+			queue.id,
+			env.reliability
+		).replayDeadLetter(input.taskId, input.entryId)
+		if (result === 'missing') throw new HttpError(404, 'dead letter not found')
+		if (result === 'stale') throw new HttpError(409, 'dead letter generation is stale')
+		if (result === 'conflict') throw new HttpError(409, 'task is already active')
+		return { isOk: true }
 	}
 
 	async overview(): Promise<QueueOverview> {

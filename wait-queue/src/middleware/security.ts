@@ -71,6 +71,7 @@ const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 function successfulWriteAction(ctx: Context): string {
 	if (ctx.method === 'POST' && ctx.path === '/waitqueue/queue/newQueue') return 'queue.configure'
 	if (ctx.method === 'POST' && ctx.path === '/waitqueue/scheduler/addTask') return 'task.enqueue'
+	if (ctx.method === 'POST' && ctx.path === '/waitqueue/admin/deadLetters/replay') return 'dead_letter.replay'
 	return 'api.write'
 }
 

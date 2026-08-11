@@ -13,8 +13,8 @@
 当业务任务已经存在，但需要统一控制“什么时候执行、同时最多执行多少个、何时释放槽位”时，可以用 WaitQueue 把调度逻辑从业务服务中拆出来：
 
 - MySQL 持久化队列、并发上限和 cron 配置；
-- Redis FIFO list 保存等待任务，hash 保存运行中的 claim；
-- Lua 脚本原子领取任务，不突破队列并发上限；
+- Redis FIFO list 保存等待任务，hash/ZSET 保存 claim、退避与死信运行态；
+- Lua 脚本原子完成领取、租约恢复、失败转移和重放，不突破队列并发上限；
 - HTTP 回调驱动 `run`、`check`、`expire` 三类业务动作；
 - Web 控制台展示真实 waiting/running/capacity，并支持注册队列和提交任务；
 - 核心服务无任务载荷、图表、消息总线等额外依赖，保持小而明确。
@@ -37,9 +37,12 @@
                                            ├─ run：启动业务任务
                                            ├─ check：返回已完成 taskId
                                            └─ expire：返回应清理 taskId
+                                      │
+                         失败/崩溃 ────┴──> retry ZSET ──> waiting
+                                                └─ 超出预算 ──> DLQ
 ```
 
-任务以 `LPUSH + RPOP` 的方式按 FIFO 领取。每次领取都会生成独立 claim token；迟到的旧回调结果不能释放同一 `taskId` 的新一代 claim。`run` 回调失败时，任务会释放槽位并放到当前等待队列之后重试。
+任务以 `LPUSH + RPOP` 的方式按 FIFO 领取。每次领取都会生成带截止时间的独立 claim token；租约只保护“领取到 `run` 返回 200”这一投递阶段，确认后的长任务不会因为固定 TTL 被重复启动。投递失败或进程崩溃会进入有界指数退避，耗尽预算后进入 DLQ。所有状态转换都比较 token 与 entry generation，迟到结果和旧重放请求不能改写新一代任务。
 
 ## 项目结构
 
@@ -50,6 +53,7 @@
 │   ├── src/routes/             # HTTP 路由
 │   ├── src/service/            # 队列、任务和控制面服务
 │   ├── src/lib/                # cron、领取、回调与释放逻辑
+│   ├── src/reliability/        # Redis 状态机、租约、退避与 DLQ
 │   └── test/                   # Node.js 契约测试
 ├── admin-dashboard/            # Next.js + React 轻量实时控制台
 ├── examples/mock-hook.mjs      # 可直接运行的最小回调服务
@@ -305,8 +309,12 @@ docker compose config --quiet
 | `REQUEST_BODY_LIMIT_BYTES` | `32768` | JSON 请求体上限，单位字节 |
 | `RATE_LIMIT_MAX_REQUESTS` | `0` | 单进程、单客户端窗口内的最大请求数；`0` 关闭 |
 | `RATE_LIMIT_WINDOW_MS` | `60000` | 限流固定窗口，单位毫秒 |
+| `TASK_CLAIM_LEASE_MS` | `60000` | `run` 投递确认前的 claim 租约；必须大于 `HOOK_TIMEOUT_MS` |
+| `TASK_MAX_RETRIES` | `5` | 首次投递失败后最多重试次数；`0` 表示直接进入 DLQ |
+| `TASK_RETRY_BASE_DELAY_MS` | `1000` | 第一次重试的基础退避，单位毫秒 |
+| `TASK_RETRY_MAX_DELAY_MS` | `60000` | 指数退避上限，单位毫秒且不得小于基础退避 |
 
-端口、超时和安全数值必须符合表中约束，无效值会让进程在启动时失败。cron 使用“秒 分 时 日 月 周”六段格式。
+端口、超时、安全与可靠性数值必须符合表中约束，无效值会让进程在启动时失败。实际重试时间还受 `crontab.run` 粒度影响；cron 使用“秒 分 时 日 月 周”六段格式。
 
 ### 控制台
 
@@ -332,11 +340,11 @@ docker compose config --quiet
 }
 ```
 
-参数错误返回 HTTP 400，未认证返回 401，资源不存在返回 404，请求体过大返回 413，限流返回 429 并带 `Retry-After`，不支持的方法返回 405，未处理异常返回 500。调用方应同时判断 HTTP 状态码和响应体 `code`。
+参数错误返回 HTTP 400，未认证返回 401，资源不存在返回 404，活跃任务或过期 generation 冲突返回 409，请求体过大返回 413，限流返回 429 并带 `Retry-After`，不支持的方法返回 405，未处理异常返回 500。调用方应同时判断 HTTP 状态码和响应体 `code`。
 
 ### 安全边界
 
-- API token 是服务间共享凭据，不是用户登录或细粒度授权。控制台的服务端代理只转发三个明确的 API，丢弃浏览器传入的 Authorization、Cookie 和转发头，再注入服务端 token。任何能访问控制台的人仍可借此操作队列，因此共享部署仍需认证网关。
+- API token 是服务间共享凭据，不是用户登录或细粒度授权。控制台的服务端代理只转发五个明确的 API，丢弃浏览器传入的 Authorization、Cookie 和转发头，再注入服务端 token。任何能访问控制台的人仍可借此操作队列，因此共享部署仍需认证网关。
 - 回调允许列表按 WHATWG URL 归一化后精确比较 origin，每次真正发送前会再校验。严格模式拒绝 loopback、link-local、私网与本地主机名；域名的所有 DNS 结果也会在连接前校验，实际 socket 固定使用已校验地址。回调不跟随 3xx。`HOOK_URL_ALLOW_PRIVATE=true` 仅用于显式列入的隔离本地演示服务。
 - 内存限流按 API 进程和直连 IP 生效，不信任 `X-Forwarded-For`。多副本或公网环境要由网关补充全局限流；对出站网络要求更强隔离时，应配置出站代理或网络策略。
 - 所有写请求（成功或失败）与鉴权/限流拒绝都会生成结构化审计日志；请求体、token、Cookie、完整回调 URL 和 taskId 不会进入审计字段。
@@ -415,6 +423,57 @@ docker compose config --quiet
 
 响应带 `Cache-Control: no-store`。这是最终一致的瞬时快照，不包含 taskId、任务历史、吞吐或成功率。
 
+### 查询与重放死信
+
+`GET /waitqueue/admin/deadLetters?queueId=12&offset=0&limit=50`
+
+返回指定队列最近进入 DLQ 的任务；`limit` 默认为 50、最大 100：
+
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "total": 1,
+    "offset": 0,
+    "limit": 50,
+    "items": [
+      {
+        "entryId": "33d443d1-17aa-45c7-958a-f21b39b25ea2",
+        "taskId": "demo-task-001",
+        "retryCount": 5,
+        "failedAt": "2026-08-11T08:00:00.000Z",
+        "reason": "callback_failed"
+      }
+    ]
+  }
+}
+```
+
+`reason` 只会是受控枚举 `callback_failed` 或 `lease_expired`；不会保存底层异常或回调 URL，查询响应与应用日志也不会暴露内部 claim token。查询响应带 `Cache-Control: no-store`。
+
+`POST /waitqueue/admin/deadLetters/replay`
+
+```json
+{
+  "queueId": 12,
+  "taskId": "demo-task-001",
+  "entryId": "33d443d1-17aa-45c7-958a-f21b39b25ea2"
+}
+```
+
+重放会原子移除该条 DLQ、重置重试预算、生成新的 entry generation 并重新入队。并发重放只有一个成功；旧 `entryId` 不能重放后来再次失败的新一代任务。可用以下命令直接操作后端：
+
+```bash
+curl -H "Authorization: Bearer ${WAITQUEUE_API_TOKEN}" \
+  'http://127.0.0.1:3000/waitqueue/admin/deadLetters?queueId=12&offset=0&limit=50'
+
+curl -X POST http://127.0.0.1:3000/waitqueue/admin/deadLetters/replay \
+  -H "Authorization: Bearer ${WAITQUEUE_API_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d '{"queueId":12,"taskId":"demo-task-001","entryId":"33d443d1-17aa-45c7-958a-f21b39b25ea2"}'
+```
+
 ### 注册或更新队列
 
 `POST /waitqueue/queue/newQueue`
@@ -442,7 +501,7 @@ docker compose config --quiet
 }
 ```
 
-`namespace` 和 `hookUrl` 必须与已注册队列完全一致。`taskId` 最长 256 字符；当前不会阻止重复提交，调用方与回调方必须保证幂等。
+`namespace` 和 `hookUrl` 必须与已注册队列完全一致。`taskId` 最长 256 字符，并在单个队列内充当活跃任务的幂等键：waiting、投递中、running、retry 或 DLQ 中的重复提交返回 HTTP 409；任务完成清理后可再次提交同一 ID。HTTP 投递仍是 at-least-once，调用方与回调方都必须保证幂等。
 
 ## 回调协议
 
@@ -459,7 +518,7 @@ docker compose config --quiet
 }
 ```
 
-业务服务应在 `HOOK_TIMEOUT_MS` 内返回 HTTP 200。响应内容会被忽略；网络错误、超时或非 200 会重新入队，因此启动逻辑必须幂等。
+业务服务应在 `HOOK_TIMEOUT_MS` 内返回 HTTP 200。响应内容会被忽略；网络错误、超时或非 200 会按 `min(base × 2^(retryCount-1), max)` 延迟重试，最多执行 `TASK_MAX_RETRIES` 次额外投递，之后进入 DLQ。HTTP 200 与 Redis acknowledgement 无法组成跨系统事务，极端崩溃窗口仍可能重复投递，因此启动逻辑必须幂等。
 
 ### `check`：释放已完成任务
 
@@ -518,12 +577,13 @@ docker compose config --quiet
 - cron 在应用进程内运行，没有 leader election；当前推荐单实例，多实例会重复触发 `check` / `expire`。
 - Redis 是任务运行态的唯一存储，应按恢复目标配置持久化、高可用和备份。
 - 当前是单节点 ioredis 客户端；使用 Redis Cluster 前应改为 Cluster 客户端，并给同一队列的 key 添加一致 hash tag。
-- 没有任务载荷、优先级、取消、任务明细查询、历史记录、退避、重试上限或死信队列。
+- 没有任务载荷、优先级、取消或已完成任务历史；DLQ 是运维恢复面，不是审计级任务档案。
 - 没有队列删除 API；数据库同步负责感知已有队列的配置变更。
-- `run` 失败会持续重试；`check` / `expire` 失败会保留 running 状态等待下一周期。
-- running claim 当前没有租约时间；如果进程在领取成功、`run` 回调送达前崩溃，可能留下占用槽位但业务方未知的 orphan claim，需人工清理 Redis。对自动恢复有要求时应补充带 CAS 的超时租约回收。
+- `check` / `expire` 失败会保留 acknowledged running 状态等待下一周期；业务任务何时完成或超时仍由回调方定义。
+- 语义是 at-least-once，不是 exactly-once。claim 租约能恢复投递确认前的进程崩溃，但 HTTP 200 与 Redis acknowledgement 之间仍存在可能重复投递的窗口。
+- 升级时旧版裸 token running claim 会通过有界游标审计获得一个完整 grace lease，再按新预算恢复；旧 waiting list 每个调度 tick 最多迁移 1000 条并保持 FIFO，完成后入队回到 O(1)。部署前应先停止旧调度进程，不支持新旧版本长期混跑或向旧版回滚后继续写入同一 Redis。
 - 优雅退出会等待在途同步和回调，但没有独立强制退出 deadline。
-- 自动化测试使用 mock 覆盖 HTTP、校验、Redis key、原子领取/回退、claim 安全和 cron 同步；尚未自动覆盖真实 MySQL/Redis 故障恢复。
+- 自动化测试除单元契约外，还在 CI 的真实 Redis 7 上覆盖双客户端并发领取、指数退避、崩溃租约恢复、DLQ、generation-safe 重放和旧 claim 升级路径；Compose 冒烟覆盖真实 MySQL 迁移与 HTTP 管理链路。
 
 ## License
 

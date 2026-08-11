@@ -83,11 +83,13 @@ Browser
             └─ /api/waitqueue/*（服务端白名单代理）
                  └─ WAITQUEUE_API_URL + 服务端 Bearer token
                       ├─ GET  /waitqueue/admin/overview
+                      ├─ GET  /waitqueue/admin/deadLetters
+                      ├─ POST /waitqueue/admin/deadLetters/replay
                       ├─ POST /waitqueue/queue/newQueue
                       └─ POST /waitqueue/scheduler/addTask
 ```
 
-代理先用 `DASHBOARD_ALLOWED_HOSTS` 精确校验请求 Host，再只接受上图三组 method/path；POST 只接受 JSON 且限制为 32 KiB。它不转发浏览器传入的 Authorization、Cookie、Host 或转发头，禁止上游重定向，只复制必要的响应头。服务端变量不会进入浏览器 bundle；后端无需开启 CORS。
+代理先用 `DASHBOARD_ALLOWED_HOSTS` 精确校验请求 Host，再只接受上图五组 method/path；死信查询只重建 `queueId`、`offset`、`limit` 三个 query 参数，POST 只接受 JSON 且限制为 32 KiB。它不转发浏览器传入的 Authorization、Cookie、Host、任意 query 或转发头，禁止上游重定向，只复制必要的响应头。服务端变量不会进入浏览器 bundle；后端无需开启 CORS。
 
 ## 技术与目录
 

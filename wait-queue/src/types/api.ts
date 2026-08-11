@@ -21,6 +21,18 @@ export interface OperationResult {
 	isOk: true
 }
 
+export interface DeadLetterQuery {
+	queueId: number
+	offset: number
+	limit: number
+}
+
+export interface ReplayDeadLetterRequest {
+	queueId: number
+	taskId: string
+	entryId: string
+}
+
 export interface QueueOverviewItem {
 	queueId: number
 	namespace: string

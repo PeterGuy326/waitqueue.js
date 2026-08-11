@@ -51,6 +51,10 @@ services:
       CHECK_TASK_DIFF_CRON: ${CHECK_TASK_DIFF_CRON:-0 * * * * *}
       CRON_TIMEZONE: ${CRON_TIMEZONE:-Asia/Shanghai}
       HOOK_TIMEOUT_MS: ${HOOK_TIMEOUT_MS:-10000}
+      TASK_CLAIM_LEASE_MS: ${TASK_CLAIM_LEASE_MS:-60000}
+      TASK_MAX_RETRIES: ${TASK_MAX_RETRIES:-5}
+      TASK_RETRY_BASE_DELAY_MS: ${TASK_RETRY_BASE_DELAY_MS:-1000}
+      TASK_RETRY_MAX_DELAY_MS: ${TASK_RETRY_MAX_DELAY_MS:-60000}
     depends_on:
       mysql:
         condition: service_healthy

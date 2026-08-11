@@ -1,159 +1,104 @@
 import { Context } from 'koa'
-import { randomUUID } from 'crypto'
 import { Redis } from 'ioredis'
 import { Service } from './service'
 import { TaskRun } from './task_run'
 import { redisCli } from '../conf/redis'
 import { env } from '../conf/env'
 import { HookUrlPolicy } from '../security/hook_url_policy'
+import { ReliabilityConfig } from '../reliability/config'
+import {
+	ClaimBatch,
+	FailureTransition,
+	RedisTaskStore,
+	TaskClaim,
+} from '../reliability/task_store'
 
-const CLAIM_TASKS_SCRIPT = `
-local maxRunning = tonumber(ARGV[1])
-if not maxRunning or maxRunning <= 0 then
-	return {}
-end
+export interface TaskStateStore {
+	claim(maxRunning: number): Promise<ClaimBatch>
+	acknowledge(claim: TaskClaim): Promise<boolean>
+	fail(claim: TaskClaim): Promise<FailureTransition>
+	runningSnapshot(): Promise<Record<string, string>>
+	release(taskSnapshot: Record<string, string>, taskIds: string[]): Promise<string[]>
+}
 
-local available = maxRunning - redis.call('HLEN', KEYS[2])
-if available <= 0 then
-	return {}
-end
+export interface TaskManagerOptions {
+	redis?: Redis
+	taskStore?: TaskStateStore
+	taskRunner?: TaskRun
+	reliability?: ReliabilityConfig
+	clock?: () => number
+	tokenFactory?: () => string
+}
 
-local waitingCount = redis.call('LLEN', KEYS[1])
-local inspected = 0
-local claimedCount = 0
-local claimed = {}
-
-while claimedCount < available and inspected < waitingCount do
-	local taskId = redis.call('RPOP', KEYS[1])
-	if not taskId then
-		break
-	end
-
-	inspected = inspected + 1
-	if redis.call('HEXISTS', KEYS[2], taskId) == 0 then
-		local claimToken = ARGV[2] .. ':' .. tostring(inspected)
-		redis.call('HSET', KEYS[2], taskId, claimToken)
-		table.insert(claimed, taskId)
-		table.insert(claimed, claimToken)
-		claimedCount = claimedCount + 1
-	end
-end
-
-return claimed
-`
-
-const REQUEUE_TASK_SCRIPT = `
-if redis.call('HGET', KEYS[1], ARGV[1]) ~= ARGV[2] then
-	return 0
-end
-
-redis.call('HDEL', KEYS[1], ARGV[1])
-redis.call('LPUSH', KEYS[2], ARGV[1])
-return 1
-`
-
-const RELEASE_TASKS_SCRIPT = `
-local released = {}
-for index = 1, #ARGV, 2 do
-	local taskId = ARGV[index]
-	local claimToken = ARGV[index + 1]
-	if redis.call('HGET', KEYS[1], taskId) == claimToken then
-		redis.call('HDEL', KEYS[1], taskId)
-		table.insert(released, taskId)
-	end
-end
-return released
-`
-
-interface TaskClaim {
-	taskId: string
-	claimToken: string
+function acknowledgedSnapshot(taskSnapshot: Record<string, string>): Record<string, string> {
+	return Object.fromEntries(
+		Object.entries(taskSnapshot).filter(([, claimToken]) => !claimToken.startsWith('pending:'))
+	)
 }
 
 export class TaskManager extends Service {
 	private queueId: number
 	private namespace: string
-	private runningKey: string // 正在执行的任务
-	private waitingKey: string // 等待执行的任务
-	private taskRunningCount: number // 并发执行的任务数
+	private taskRunningCount: number
 	private taskRunInstance: TaskRun
-	private redis: Redis
+	private taskStore: TaskStateStore
+
 	constructor(
 		ctx: Context,
 		queueId: number,
 		namespace: string,
 		url: string,
-		runningKey: string,
-		waitingKey: string,
+		_runningKey: string,
+		_waitingKey: string,
 		taskRunningCount: number,
 		hookUrlPolicy: HookUrlPolicy = new HookUrlPolicy(env.security.hookUrlAllowlist, {
 			allowPrivate: env.security.allowPrivateHookUrls,
-		})
+		}),
+		options: TaskManagerOptions = {}
 	) {
 		super(ctx)
 		this.queueId = queueId
 		this.namespace = namespace
-		this.runningKey = runningKey
-		this.waitingKey = waitingKey
 		this.taskRunningCount = taskRunningCount
-		this.taskRunInstance = new TaskRun(this.ctx, url, queueId, namespace, hookUrlPolicy)
-		this.redis = redisCli.getInstance()
+		this.taskStore =
+			options.taskStore ??
+			new RedisTaskStore(
+				options.redis ?? redisCli.getInstance(),
+				namespace,
+				queueId,
+				options.reliability ?? env.reliability,
+				options.clock,
+				options.tokenFactory
+			)
+		this.taskRunInstance =
+			options.taskRunner ?? new TaskRun(this.ctx, url, queueId, namespace, hookUrlPolicy)
 	}
 
-	private async dispatchTask({ taskId, claimToken }: TaskClaim): Promise<void> {
+	private async dispatchTask(claim: TaskClaim): Promise<void> {
 		try {
-			await this.taskRunInstance.run(taskId)
-			this.selfLog('task trigger succeeded')
+			await this.taskRunInstance.run(claim.taskId)
 		} catch (error: any) {
 			this.baseLogError('task trigger failed', error)
 			try {
-				const requeued = await this.redis.eval(
-					REQUEUE_TASK_SCRIPT,
-					2,
-					this.runningKey,
-					this.waitingKey,
-					taskId,
-					claimToken
-				)
-				this.selfLog(
-					requeued === 1 ? 'task trigger failed; task returned to waiting queue' : 'task trigger failed; stale claim ignored'
-				)
+				const transition = await this.taskStore.fail(claim)
+				this.selfLog('task trigger failure transitioned', {
+					outcome: transition.outcome,
+					retryCount: transition.retryCount,
+				})
 			} catch (redisError) {
-				this.baseLogError('failed to return task to waiting queue', redisError)
+				this.baseLogError('failed to persist task trigger failure', redisError)
 			}
+			return
 		}
-	}
 
-	/**
-	 * 原子地从等待队列领取最多 maxRunning 个任务，并立即登记到运行集合。
-	 * 领取和占位在同一个 Redis 脚本中完成，避免多个进程或重叠 cron 同时突破并发上限。
-	 */
-	private async claimTasks(maxRunning: number): Promise<TaskClaim[]> {
-		const result = await this.redis.eval(
-			CLAIM_TASKS_SCRIPT,
-			2,
-			this.waitingKey,
-			this.runningKey,
-			maxRunning,
-			randomUUID()
-		)
-		if (!Array.isArray(result)) return []
-
-		const claims: TaskClaim[] = []
-		for (let index = 0; index + 1 < result.length; index += 2) {
-			claims.push({ taskId: String(result[index]), claimToken: String(result[index + 1]) })
+		try {
+			const acknowledged = await this.taskStore.acknowledge(claim)
+			this.selfLog(acknowledged ? 'task trigger acknowledged' : 'stale task trigger acknowledgement ignored')
+		} catch (redisError) {
+			// The pending lease remains recoverable. The callback may be delivered more than once,
+			// so callback handlers must remain idempotent.
+			this.baseLogError('failed to acknowledge task trigger', redisError)
 		}
-		return claims
-	}
-
-	private async releaseTasks(taskSnapshot: Record<string, string>, taskIds: string[]): Promise<string[]> {
-		const claimPairs = [...new Set(taskIds)].flatMap((taskId) =>
-			taskSnapshot[taskId] === undefined ? [] : [taskId, taskSnapshot[taskId]]
-		)
-		if (!claimPairs.length) return []
-
-		const result = await this.redis.eval(RELEASE_TASKS_SCRIPT, 1, this.runningKey, ...claimPairs)
-		return Array.isArray(result) ? result.map(String) : []
 	}
 
 	async runTask(): Promise<void> {
@@ -165,60 +110,43 @@ export class TaskManager extends Service {
 		}
 
 		try {
-			const claims = await this.claimTasks(taskRunningCount)
-			this.selfLog(`runTask: claimed task count: ${claims.length}`)
-			await Promise.all(
-				claims.map((claim) => {
-					this.selfLog('runTask: prepare exec task')
-					return this.dispatchTask(claim)
-				})
-			)
+			const batch = await this.taskStore.claim(taskRunningCount)
+			this.selfLog('runTask: state transition summary', {
+				claimed: batch.claims.length,
+				recovered: batch.recovered,
+				promoted: batch.promoted,
+				deadLettered: batch.deadLettered,
+			})
+			await Promise.all(batch.claims.map((claim) => this.dispatchTask(claim)))
 		} catch (err: any) {
 			this.baseLogError('runTask: failed to claim or dispatch tasks', err)
 		}
 	}
 
-	/**
-	 * 对执行中任务进行检测
-	 * 如果数据库中为已完成，则直接在 runningKey 中剔除
-	 * 剩余任务，获取目标任务状态，更新数据库任务状态，并对已完成的在 runningKey 中剔除
-	 */
 	async checkTaskStatus(): Promise<void> {
 		this.selfLog('CheckStatus: check task status start')
-		const taskMap = await this.redis.hgetall(this.runningKey)
+		const taskMap = acknowledgedSnapshot(await this.taskStore.runningSnapshot())
 		const taskIds = Object.keys(taskMap)
-		this.selfLog(`CheckStatus: running task count: ${taskIds.length}`)
-		const completeIds = await this.taskRunInstance.checkTaskStatus(
-			taskIds.filter((item) => {
-				return item !== ''
-			})
-		)
-		const releasedIds = await this.releaseTasks(taskMap, completeIds)
+		this.selfLog(`CheckStatus: acknowledged task count: ${taskIds.length}`)
+		const completeIds = await this.taskRunInstance.checkTaskStatus(taskIds)
+		const releasedIds = await this.taskStore.release(taskMap, completeIds)
 		if (releasedIds.length) {
 			this.selfLog(`CheckStatus: released completed task count: ${releasedIds.length}`)
 		}
 	}
 
-	/**
-	 * 让长时间未结束的任务结束掉
-	 * 各 task_run 中自己决定哪些任务为超时任务，并进行关闭
-	 * 此时可以不用过分关注，数据库已完成，但是依然在 runningKey 中的， checkTaskStatus 中会进行处理
-	 */
 	async expireTask(): Promise<void> {
 		this.selfLog('ExpireTask: expire task status start')
-		const taskMap = await this.redis.hgetall(this.runningKey)
-
+		const taskMap = acknowledgedSnapshot(await this.taskStore.runningSnapshot())
 		const expiredIds = await this.taskRunInstance.expireTasks()
 		this.selfLog(`ExpireTask: expired task count: ${expiredIds.length}`)
-
-		// 获取实际已过期但是仍然在缓存执行队列中的任务 id
-		const releasedIds = await this.releaseTasks(taskMap, expiredIds)
+		const releasedIds = await this.taskStore.release(taskMap, expiredIds)
 		if (releasedIds.length) {
 			this.selfLog(`ExpireTask: released expired task count: ${releasedIds.length}`)
 		}
 	}
 
-	selfLog(message: string): void {
-		this.baseLogInfo(message, { queueId: this.queueId, namespace: this.namespace })
+	selfLog(message: string, context: Record<string, unknown> = {}): void {
+		this.baseLogInfo(message, { queueId: this.queueId, namespace: this.namespace, ...context })
 	}
 }

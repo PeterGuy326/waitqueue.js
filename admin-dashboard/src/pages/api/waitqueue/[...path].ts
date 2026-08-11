@@ -7,6 +7,8 @@ const JSON_CONTENT_TYPE = 'application/json';
 
 const ALLOWED_ROUTES = new Map<string, 'GET' | 'POST'>([
   ['admin/overview', 'GET'],
+  ['admin/deadLetters', 'GET'],
+  ['admin/deadLetters/replay', 'POST'],
   ['queue/newQueue', 'POST'],
   ['scheduler/addTask', 'POST'],
 ]);
@@ -70,6 +72,23 @@ function routePath(request: NextApiRequest): string | undefined {
   return segments.join('/');
 }
 
+function upstreamSearch(request: NextApiRequest, path: string): string | undefined {
+  const suppliedKeys = Object.keys(request.query).filter((key) => key !== 'path');
+  if (path !== 'admin/deadLetters') return suppliedKeys.length === 0 ? '' : undefined;
+
+  const allowedKeys = new Set(['queueId', 'offset', 'limit']);
+  if (suppliedKeys.some((key) => !allowedKeys.has(key))) return undefined;
+  const search = new URLSearchParams();
+  for (const key of ['queueId', 'offset', 'limit']) {
+    const value = request.query[key];
+    if (value === undefined) continue;
+    if (typeof value !== 'string') return undefined;
+    search.set(key, value);
+  }
+  const serialized = search.toString();
+  return serialized ? `?${serialized}` : '';
+}
+
 function copyResponseHeader(response: Response, target: NextApiResponse, name: string): void {
   const value = response.headers.get(name);
   if (value) target.setHeader(name, value);
@@ -94,6 +113,12 @@ export default async function handler(request: NextApiRequest, response: NextApi
     return;
   }
 
+  const search = upstreamSearch(request, path);
+  if (search === undefined) {
+    response.status(400).json(errorEnvelope('query parameters not allowed'));
+    return;
+  }
+
   if (allowedMethod === 'POST') {
     const contentType = request.headers['content-type'] || '';
     const mediaType = contentType.split(';', 1)[0].trim().toLowerCase();
@@ -112,7 +137,7 @@ export default async function handler(request: NextApiRequest, response: NextApi
     const token = process.env.WAITQUEUE_API_TOKEN?.trim();
     if (token) headers.authorization = `Bearer ${token}`;
 
-    const upstream = await fetch(`${upstreamOrigin()}/waitqueue/${path}`, {
+    const upstream = await fetch(`${upstreamOrigin()}/waitqueue/${path}${search}`, {
       method: allowedMethod,
       headers,
       body: allowedMethod === 'POST' ? JSON.stringify(request.body) : undefined,
