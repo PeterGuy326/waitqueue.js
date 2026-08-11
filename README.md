@@ -51,16 +51,68 @@
 │   └── test/                   # Node.js 契约测试
 ├── admin-dashboard/            # Next.js + React 轻量实时控制台
 ├── examples/mock-hook.mjs      # 可直接运行的最小回调服务
+├── Dockerfile                  # API、迁移器、控制台与示例回调的多阶段镜像
+├── compose.yaml                # MySQL + Redis + API + 控制台一键编排
 └── docs/                       # 控制台预览图
 ```
 
-## 五分钟跑通完整流程
+## 一条命令启动
+
+已安装 Docker 与较新的 Docker Compose v2（`docker compose up` 需支持 `--wait`）时，在仓库根目录执行：
+
+```bash
+docker compose up --build --detach --wait
+```
+
+Compose 会按 `MySQL → 数据库迁移 → API → 控制台` 的顺序启动，并等待所有长期服务健康。随后访问：
+
+- 控制台：[http://127.0.0.1:3001](http://127.0.0.1:3001)
+- API 存活检查：[http://127.0.0.1:3000/waitqueue/health](http://127.0.0.1:3000/waitqueue/health)
+- API 就绪检查：[http://127.0.0.1:3000/waitqueue/ready](http://127.0.0.1:3000/waitqueue/ready)
+
+默认只监听 `127.0.0.1`，数据库凭据也只为隔离的本地体验准备。共享或生产环境应先复制配置并替换两个密码；生产暴露应通过带认证与 TLS 的网关完成，而不是把本项目端口直接绑定到公网：
+
+```bash
+cp .env.docker.example .env
+docker compose up --build --detach --wait
+```
+
+查看状态与日志：
+
+```bash
+docker compose ps
+docker compose logs --follow api dashboard
+```
+
+停止服务不会删除数据：
+
+```bash
+docker compose down
+```
+
+如需完整演示回调，再启用可选的 `demo` profile：
+
+```bash
+docker compose --profile demo up --build --detach --wait
+```
+
+此时注册队列时使用容器网络地址 `http://mock-hook:3101/callback`。宿主机仍可通过 `http://127.0.0.1:3101/health` 检查示例回调。
+
+MySQL 与 Redis 数据保存在命名卷中。只有确认要清空全部队列配置和运行态时，才执行 `docker compose down --volumes`；该操作不可从 Compose 自动恢复。
+
+### 容器内迁移机制
+
+`migrate` 是启动前的一次性服务。它只读取 `wait-queue/sql/V*.sql`，按版本顺序执行，并在 `waitqueue_schema_migrations` 表记录 SHA-256 校验和。MySQL advisory lock 保证同一数据库同一时刻只有一个迁移器工作；重复 `up` 会跳过已应用版本。`U*.sql` 是回滚脚本，永远不会被自动执行。
+
+镜像固定使用仍受支持的 Node.js 24 LTS，并采用多阶段构建、非 root 运行和只读文件系统。MySQL、Redis 仅在 Compose 内部网络开放，默认不映射到宿主机。
+
+## 手动跑通完整流程
 
 ### 0. 前置条件
 
-完整运行需要：
+不使用 Docker 时，完整运行需要：
 
-- Node.js `>= 20.9`；
+- Node.js `>= 20.9`，推荐仍受支持的 Node.js 24 LTS；
 - Corepack / pnpm 8；
 - MySQL 5.7+ 或 8.x；
 - Redis 6+。
@@ -80,28 +132,35 @@ corepack pnpm install:all
 | 管理控制台 | `http://127.0.0.1:3001` |
 | 示例回调 | `http://127.0.0.1:3101/callback` |
 
-### 1. 初始化数据库
+### 1. 创建数据库
 
-确认 MySQL 与 Redis 已启动，然后创建数据库并执行迁移：
+确认 MySQL 与 Redis 已启动，然后创建数据库：
 
 ```bash
 mysql -h 127.0.0.1 -u root -p \
   -e "CREATE DATABASE IF NOT EXISTS waitqueue CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;"
-
-mysql -h 127.0.0.1 -u root -p waitqueue < wait-queue/sql/V2__init_schema.sql
-mysql -h 127.0.0.1 -u root -p waitqueue < wait-queue/sql/V3__normalize_queue_schema.sql
 ```
 
-`V2` 创建基础表，`V3` 统一字段长度、二进制排序规则和 `namespace + url` 唯一约束。已有部署只执行尚未应用的迁移；如果历史数据存在重复队列，`V3` 会失败，应先清理重复行。`U2__init_schema.sql` 会删除 queue 表，不属于正常启动流程。
-
-### 2. 配置并构建后端
+### 2. 配置、构建并迁移后端
 
 ```bash
 cp wait-queue/.env.example wait-queue/.env
 corepack pnpm --dir wait-queue build
+corepack pnpm --dir wait-queue migrate
 ```
 
-默认配置可直接连接本机 `waitqueue` 数据库和 Redis；非默认账号、端口或密码请修改 `wait-queue/.env`。
+默认配置可直接连接本机 `waitqueue` 数据库和 Redis；非默认账号、端口或密码请在迁移前修改 `wait-queue/.env`。迁移器会按版本执行 `V*.sql`、校验历史文件并跳过已经应用的版本；不要手工重放 SQL 文件。`U*.sql` 是破坏性回滚脚本，不属于正常启动流程。
+
+从已有数据库升级前，先做可恢复性已验证的备份，并至少完成以下预检：
+
+```sql
+SELECT namespace, url, COUNT(*) AS duplicates
+FROM queue GROUP BY namespace, url HAVING COUNT(*) > 1;
+
+SELECT COUNT(*) AS negative_concurrency FROM queue WHERE count < 0;
+```
+
+两项结果都必须为零，否则 `V3` 的唯一约束或无符号并发数字段会失败。`V3` 还会变更表排序规则、字段定义和索引，在大表上可能重建或锁定表；请结合实际 MySQL 版本在维护窗口执行并预留回滚时间。
 
 ### 3. 启动三个进程
 
@@ -168,12 +227,19 @@ curl -X POST http://127.0.0.1:3000/waitqueue/scheduler/addTask \
 | 构建后端与控制台 | `corepack pnpm build` |
 | 后端测试 + 控制台类型检查 | `corepack pnpm test` |
 | 后端构建 | `corepack pnpm --dir wait-queue build` |
+| 执行版本化数据库迁移 | `corepack pnpm --dir wait-queue migrate` |
 | 后端测试 | `corepack pnpm --dir wait-queue test` |
 | 后端启动 | `corepack pnpm --dir wait-queue start` |
 | 控制台开发 | `corepack pnpm --dir admin-dashboard dev` |
 | 控制台类型检查 | `corepack pnpm --dir admin-dashboard typecheck` |
 | 控制台生产构建 | `corepack pnpm --dir admin-dashboard build` |
 | 控制台生产启动 | `corepack pnpm --dir admin-dashboard start` |
+| 校验 Compose 配置 | `corepack pnpm docker:config` |
+| 一键构建并启动容器 | `corepack pnpm docker:up` |
+| 停止容器并保留数据 | `corepack pnpm docker:down` |
+| 跟踪 API 与控制台日志 | `corepack pnpm docker:logs` |
+
+Docker Compose 与这些快捷命令都会自动读取项目根目录的 `.env`。共享环境请先从 `.env.docker.example` 复制并修改，后续的 `up`、`logs`、`down` 和 `--profile demo` 会持续使用同一份配置，避免重建时回退到本地默认凭据。
 
 `wait-queue test` 会先重新编译，再使用 Node.js 内置 test runner 执行全部契约测试。
 
@@ -233,7 +299,24 @@ curl -X POST http://127.0.0.1:3000/waitqueue/scheduler/addTask \
 }
 ```
 
-这是廉价存活探测。进程仅在启动时完成 MySQL、Redis 就绪检查；它不是每次请求都探测依赖的 deep health。
+这是廉价存活探测，只说明 HTTP 进程可响应，不访问外部依赖。
+
+`GET /waitqueue/ready`
+
+就绪检查会并行执行 MySQL `SELECT 1` 与 Redis `PING`。两者都可用时返回 HTTP 200：
+
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "status": "ready",
+    "dependencies": { "mysql": "ok", "redis": "ok" }
+  }
+}
+```
+
+任一依赖不可用时返回 HTTP 503，响应只给出依赖状态，不暴露连接串或底层错误。容器编排应使用 `/ready`，进程存活探针应使用 `/health`。
 
 ### 控制台快照
 

@@ -2,6 +2,7 @@
 const apiOrigin = (process.env.WAITQUEUE_API_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 
 module.exports = {
+  output: 'standalone',
   reactStrictMode: true,
   poweredByHeader: false,
   agentRules: false,

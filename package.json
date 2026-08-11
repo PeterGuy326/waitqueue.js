@@ -9,6 +9,10 @@
   "scripts": {
     "install:all": "corepack pnpm --dir wait-queue install --frozen-lockfile && corepack pnpm --dir admin-dashboard install --frozen-lockfile",
     "build": "corepack pnpm --dir wait-queue build && corepack pnpm --dir admin-dashboard build",
-    "test": "corepack pnpm --dir wait-queue test && corepack pnpm --dir admin-dashboard typecheck"
+    "test": "corepack pnpm --dir wait-queue test && corepack pnpm --dir admin-dashboard typecheck",
+    "docker:config": "docker compose config --quiet",
+    "docker:up": "docker compose up --build --detach --wait",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs --follow api dashboard"
   }
 }

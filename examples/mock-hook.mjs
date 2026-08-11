@@ -1,6 +1,7 @@
 import http from 'node:http'
 
 const port = Number(process.env.MOCK_HOOK_PORT || 3101)
+const host = process.env.MOCK_HOOK_HOST || '127.0.0.1'
 const completedTasks = new Set()
 
 function sendJson(response, status, data) {
@@ -9,6 +10,11 @@ function sendJson(response, status, data) {
 }
 
 const server = http.createServer((request, response) => {
+	if (request.method === 'GET' && request.url === '/health') {
+		sendJson(response, 200, { status: 'ok' })
+		return
+	}
+
 	if (request.method !== 'POST' || request.url !== '/callback') {
 		sendJson(response, 404, { message: 'route not found' })
 		return
@@ -51,6 +57,6 @@ const server = http.createServer((request, response) => {
 	})
 })
 
-server.listen(port, '127.0.0.1', () => {
-	console.log(`mock hook listening at http://127.0.0.1:${port}/callback`)
+server.listen(port, host, () => {
+	console.log(`mock hook listening at http://${host}:${port}/callback`)
 })

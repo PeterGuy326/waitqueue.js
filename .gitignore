@@ -1,0 +1,8 @@
+# Local Docker overrides and generated validation evidence
+.env
+.env.docker
+docker-build/
+
+# Workspace noise
+.DS_Store
+*.log
