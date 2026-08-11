@@ -1,0 +1,102 @@
+:root {
+  color-scheme: light;
+  --paper: #f7f7f6;
+  --panel: #ffffff;
+  --wash: #f3f3f2;
+  --ink: #17181b;
+  --text: #202124;
+  --muted: #686b70;
+  --faint: #72757a;
+  --line: #dedfdf;
+  --line-strong: #babdc1;
+  --line-ink: #292a2d;
+  --accent: #00c98b;
+  --accent-hover: #16d99c;
+  --accent-strong: #007c57;
+  --accent-soft: #ddf8ee;
+  --accent-ghost: #f1fcf8;
+  --warning: #aa5119;
+  --warning-soft: #fff0e3;
+  --danger: #c83a3a;
+  --danger-soft: #fff0f0;
+  --font-sans: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-display: "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  --font-mono: "SFMono-Regular", "Cascadia Mono", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #131416;
+  --panel: #1b1c1f;
+  --wash: #232428;
+  --ink: #101113;
+  --text: #f2f3f3;
+  --muted: #afb1b5;
+  --faint: #85898f;
+  --line: #34363a;
+  --line-strong: #51545a;
+  --line-ink: #65686e;
+  --accent-strong: #32d9a4;
+  --accent-soft: #123d30;
+  --accent-ghost: #183229;
+  --warning: #f2a366;
+  --warning-soft: #432b1b;
+  --danger: #ff7b7b;
+  --danger-soft: #402225;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+html,
+body,
+#__next {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  color: var(--text);
+  background: var(--paper);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+::selection {
+  color: #07110d;
+  background: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

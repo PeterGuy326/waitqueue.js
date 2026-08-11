@@ -2,10 +2,11 @@ import { Context } from 'koa'
 import { Service } from '../lib/service'
 import { QueueAttributes, QueueDao } from '../dao/queue_dao'
 import { ModelCtor } from 'sequelize'
-import * as SchedulerServiceType from '../../type/service/scheduler'
 import { Redis } from 'ioredis'
 import { redisCli } from '../conf/redis'
 import { getWaitingKey } from '../common/cache'
+import { AddTaskRequest, OperationResult } from '../types/api'
+import { HttpError } from '../utils/http_error'
 
 export class SchedulerService extends Service {
 	private queueDao: ModelCtor<QueueAttributes>
@@ -16,22 +17,23 @@ export class SchedulerService extends Service {
 		this.redis = redisCli.getInstance()
 	}
 
-	async addTask(params: SchedulerServiceType.AddTaskReq) {
+	async addTask(params: AddTaskRequest): Promise<OperationResult> {
 		const { hookUrl, taskId, namespace } = params
 		const queueRes = await this.queueDao.findOne({
+			attributes: ['id', 'namespace'],
 			where: {
 				url: hookUrl,
 				namespace,
 			},
 		})
 		if (!queueRes || !queueRes.id) {
-			// 接口抛出异常
+			throw new HttpError(404, 'queue not found; register it before adding tasks')
 		}
 
 		this.baseLogInfo(`TaskManager-${namespace}|url:${hookUrl}|taskId:${taskId}|addTask: push task to queue`)
-		await this.redis.lpush(getWaitingKey(namespace, queueRes?.id || -1), taskId)
+		await this.redis.lpush(getWaitingKey(queueRes.namespace, queueRes.id), taskId)
 		return {
-            isOk: true
-        }
+			isOk: true,
+		}
 	}
 }

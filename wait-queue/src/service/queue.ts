@@ -1,9 +1,10 @@
 import { Context } from 'koa'
 import { Service } from '../lib/service'
-import * as QueueServiceType from '../../type/service/queue'
 import { QueueAttributes, QueueDao } from '../dao/queue_dao'
 import { ModelCtor } from 'sequelize'
 import { Timer } from '../lib/timer'
+import { NewQueueRequest, OperationResult } from '../types/api'
+import { createBackgroundContext } from '../common/logger'
 
 export class QueueService extends Service {
 	private queueDao: ModelCtor<QueueAttributes>
@@ -12,27 +13,8 @@ export class QueueService extends Service {
 		this.queueDao = QueueDao
 	}
 
-	async newQueue(params: QueueServiceType.NewQueueKeyReq): Promise<QueueServiceType.NewQueueKeyRes> {
-		const {
-			hookUrl,
-			currMaxCount = 5,
-			crontab = {
-				run: '0 0 0 * * *',
-				check: '0 0 0 * * *',
-				expire: '0 0 0 * * *',
-			},
-			namespace,
-		} = params
-
-		const queueItem = await this.queueDao.findOne({
-			attributes: ['id'],
-			where: {
-				url: hookUrl,
-				namespace,
-			},
-		})
-
-		let queueId
+	async newQueue(params: NewQueueRequest): Promise<OperationResult> {
+		const { hookUrl, currMaxCount, crontab, namespace } = params
 		const dbBody = {
 			url: hookUrl,
 			namespace,
@@ -41,21 +23,20 @@ export class QueueService extends Service {
 			checkCrontab: crontab.check,
 			expireCrontab: crontab.expire,
 		}
-		if (queueItem?.id) {
-			// 更新
-			queueId = queueItem.id
-			await this.queueDao.update(dbBody, {
-				where: {
-					id: queueItem.id,
-				},
+		const [queue, created] = await this.queueDao.findOrCreate({
+			where: { url: hookUrl, namespace },
+			defaults: dbBody,
+		})
+		if (!created) {
+			await queue.update({
+				count: currMaxCount,
+				runCrontab: crontab.run,
+				checkCrontab: crontab.check,
+				expireCrontab: crontab.expire,
 			})
-		} else {
-			const { id } = await this.queueDao.create(dbBody)
-			queueId = id
 		}
 
-		// 初始化 Timer
-		new Timer(this.ctx).initializeQueueList([queueId])
+		await new Timer(createBackgroundContext()).initializeQueueList([queue.id])
 
 		return { isOk: true }
 	}
