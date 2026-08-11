@@ -48,7 +48,11 @@ corepack pnpm --dir admin-dashboard dev
 
 ```dotenv
 WAITQUEUE_API_URL=http://127.0.0.1:3000
+WAITQUEUE_API_TOKEN=
+DASHBOARD_ALLOWED_HOSTS=127.0.0.1,localhost,[::1]
 ```
+
+后端开启 `WAITQUEUE_API_TOKEN` 时，这里必须填写同一值。该值是服务端共享凭据，不要改名为 `NEXT_PUBLIC_*`。`DASHBOARD_ALLOWED_HOSTS` 是无通配符的精确 hostname 列表，比较时忽略端口；使用共享域名或反向代理时必须加入外部 hostname，并让代理保留/改写为该 Host。
 
 ## 生产构建
 
@@ -58,31 +62,32 @@ corepack pnpm --dir admin-dashboard build
 corepack pnpm --dir admin-dashboard start
 ```
 
-`dev` 和 `start` 都固定监听 3001，避免与后端默认的 3000 冲突。构建和启动时应提供同一个 `WAITQUEUE_API_URL`。
+`dev` 和 `start` 都固定监听 3001，避免与后端默认的 3000 冲突。`WAITQUEUE_API_URL`、`WAITQUEUE_API_TOKEN` 和 `DASHBOARD_ALLOWED_HOSTS` 在服务启动后按请求读取，无需作为 Docker build argument；同一份构建产物可在不同环境复用。
 
 ### Docker Compose
 
-仓库根目录的 Compose 会把控制台构建为 Next.js standalone 镜像，并在构建阶段将 API 代理固定到容器网络中的 `http://api:3000`：
+仓库根目录的 Compose 会把控制台构建为 Next.js standalone 镜像，并在运行时将 API 代理指向容器网络中的 `http://api:3000`：
 
 ```bash
 docker compose up --build --detach --wait
 ```
 
-启动完成后访问 [http://127.0.0.1:3001](http://127.0.0.1:3001)。这里必须在构建阶段提供 `WAITQUEUE_API_URL`，因为 Next.js 会把 rewrite 写进构建产物；只在容器启动时修改该变量不足以改变已生成的代理规则。控制台镜像以非 root 用户和只读文件系统运行。
+启动完成后访问 [http://127.0.0.1:3001](http://127.0.0.1:3001)。Compose 将同一个 `WAITQUEUE_API_TOKEN` 仅注入 API 与控制台运行时，不会写入镜像构建层。控制台镜像以非 root 用户和只读文件系统运行。
 
 ## 数据链路
 
 ```text
 Browser
   └─ /waitqueue/*（同源）
-       └─ Next.js rewrite
-            └─ WAITQUEUE_API_URL
-                 ├─ GET  /waitqueue/admin/overview
-                 ├─ POST /waitqueue/queue/newQueue
-                 └─ POST /waitqueue/scheduler/addTask
+       └─ Next.js internal rewrite
+            └─ /api/waitqueue/*（服务端白名单代理）
+                 └─ WAITQUEUE_API_URL + 服务端 Bearer token
+                      ├─ GET  /waitqueue/admin/overview
+                      ├─ POST /waitqueue/queue/newQueue
+                      └─ POST /waitqueue/scheduler/addTask
 ```
 
-`WAITQUEUE_API_URL` 只由 Next.js 服务端读取，不会进入浏览器 bundle。后端无需开启 CORS。
+代理先用 `DASHBOARD_ALLOWED_HOSTS` 精确校验请求 Host，再只接受上图三组 method/path；POST 只接受 JSON 且限制为 32 KiB。它不转发浏览器传入的 Authorization、Cookie、Host 或转发头，禁止上游重定向，只复制必要的响应头。服务端变量不会进入浏览器 bundle；后端无需开启 CORS。
 
 ## 技术与目录
 
@@ -92,6 +97,7 @@ Browser
 admin-dashboard/
 ├── src/pages/_app.tsx             # 全局样式与页面入口
 ├── src/pages/index.tsx            # 数据读取、交互与控制室页面
+├── src/pages/api/waitqueue/       # 运行时白名单代理与 token 注入
 ├── src/style/global.css           # 设计 token、主题与基础样式
 ├── src/style/dashboard.module.css # 工作台布局、状态组件和响应式样式
 ├── next.config.js                 # API 同源代理
@@ -102,11 +108,12 @@ HTTP 使用浏览器原生 `fetch`，页面状态使用 React hooks；没有 Red
 
 ## 安全边界
 
-控制台没有独立登录页，后端 API 也尚未内置鉴权。部署时必须：
+控制台的服务端代理可以隐藏后端共享 token，但它不是用户身份认证。任何能访问控制台的人都能借代理读取或修改队列。部署时必须：
 
 - 将控制台和 API 放到可信网络或认证网关之后；
-- 对写接口增加认证、授权和审计；
-- 限制可注册的 `hookUrl` 主机与网段，防止 SSRF；
+- 后端与控制台配置同一个高强度 `WAITQUEUE_API_TOKEN`；
+- 将控制台外部 hostname 精确加入 `DASHBOARD_ALLOWED_HOSTS`；
+- 后端配置精确 `HOOK_URL_ALLOWLIST`，并按需配置出站网络策略；
 - 不把管理端直接暴露到公网。
 
 完整启动流程、API 和回调协议见仓库根目录 [README.md](../README.md)。

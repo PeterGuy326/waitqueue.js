@@ -2,7 +2,7 @@ import Router from '@koa/router'
 import { AdminService } from '../service/admin'
 import response from '../utils/response'
 
-const adminRoutes = new Router()
+const adminRoutes = new Router({ sensitive: true })
 
 adminRoutes.get('/overview', async (ctx) => {
 	ctx.set('Cache-Control', 'no-store')

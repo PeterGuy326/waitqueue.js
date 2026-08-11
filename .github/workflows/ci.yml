@@ -221,6 +221,7 @@ jobs:
       DASHBOARD_PORT: 3001
       DB_DATABASE: waitqueue_ci
       DB_USER: waitqueue_ci
+      HOOK_URL_ALLOWLIST: https://worker.example.com,http://127.0.0.1:3101
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -233,11 +234,14 @@ jobs:
           set -Eeuo pipefail
           db_password="$(openssl rand -hex 24)"
           db_root_password="$(openssl rand -hex 24)"
+          api_token="$(openssl rand -hex 32)"
           echo "::add-mask::$db_password"
           echo "::add-mask::$db_root_password"
+          echo "::add-mask::$api_token"
           {
             echo "DB_PASSWORD=$db_password"
             echo "DB_ROOT_PASSWORD=$db_root_password"
+            echo "WAITQUEUE_API_TOKEN=$api_token"
           } >> "$GITHUB_ENV"
 
       - name: Validate Compose configuration
@@ -269,9 +273,95 @@ jobs:
             '.code == 0 and .data.status == "ready" and .data.dependencies.mysql == "ok" and .data.dependencies.redis == "ok"' \
             <<< "$ready_json" > /dev/null
 
+          unauthenticated_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            "http://127.0.0.1:${API_PORT}/waitqueue/admin/overview")"
+          test "$unauthenticated_status" = "401"
+
+          wrong_token_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --header 'Authorization: Bearer definitely-wrong' \
+            "http://127.0.0.1:${API_PORT}/waitqueue/admin/overview")"
+          test "$wrong_token_status" = "401"
+
+          authenticated_json="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer ${WAITQUEUE_API_TOKEN}" \
+            "http://127.0.0.1:${API_PORT}/waitqueue/admin/overview")"
+          jq --exit-status '.code == 0 and .data.summary.queueCount == 0' \
+            <<< "$authenticated_json" > /dev/null
+
+          private_hook_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer ${WAITQUEUE_API_TOKEN}" \
+            --header 'Content-Type: application/json' \
+            --data '{"namespace":"blocked","hookUrl":"http://127.0.0.1:3101/callback"}' \
+            "http://127.0.0.1:${API_PORT}/waitqueue/queue/newQueue")"
+          test "$private_hook_status" = "400"
+
+          oversized_status="$(python3 -c \
+            'import json; print(json.dumps({"namespace":"large","hookUrl":"https://worker.example.com/" + "x" * 40000}))' \
+            | curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+                --request POST \
+                --header "Authorization: Bearer ${WAITQUEUE_API_TOKEN}" \
+                --header 'Content-Type: application/json' \
+                --data-binary @- \
+                "http://127.0.0.1:${API_PORT}/waitqueue/queue/newQueue")"
+          test "$oversized_status" = "413"
+
           dashboard_html="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 2 \
             "http://127.0.0.1:${DASHBOARD_PORT}/")"
           grep --fixed-strings --quiet 'WaitQueue Control Room' <<< "$dashboard_html"
+
+          proxy_content_type_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --request POST \
+            --header 'Content-Type: text/plain' \
+            --data 'not-json' \
+            "http://127.0.0.1:${DASHBOARD_PORT}/waitqueue/queue/newQueue")"
+          test "$proxy_content_type_status" = "415"
+
+          proxy_jsonp_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --request POST \
+            --header 'Content-Type: application/jsonp' \
+            --data '{}' \
+            "http://127.0.0.1:${DASHBOARD_PORT}/waitqueue/queue/newQueue")"
+          test "$proxy_jsonp_status" = "415"
+
+          untrusted_host_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --header "Host: attacker.example:${DASHBOARD_PORT}" \
+            "http://127.0.0.1:${DASHBOARD_PORT}/waitqueue/admin/overview")"
+          test "$untrusted_host_status" = "403"
+
+          proxy_oversized_status="$(python3 -c \
+            'import json; print(json.dumps({"namespace":"large","hookUrl":"https://worker.example.com/" + "x" * 40000}))' \
+            | curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+                --request POST \
+                --header 'Content-Type: application/json' \
+                --data-binary @- \
+                "http://127.0.0.1:${DASHBOARD_PORT}/waitqueue/queue/newQueue")"
+          test "$proxy_oversized_status" = "413"
+
+          proxy_queue_json="$(curl --fail --silent --show-error \
+            --request POST \
+            --header 'Authorization: Bearer browser-controlled-value' \
+            --header 'Cookie: session=browser-controlled-value' \
+            --header 'Content-Type: application/json' \
+            --data '{"namespace":"ci","hookUrl":"https://worker.example.com/callback","currMaxCount":2,"crontab":{"run":"0 0 0 1 1 *","check":"0 0 0 1 1 *","expire":"0 0 0 1 1 *"}}' \
+            "http://127.0.0.1:${DASHBOARD_PORT}/waitqueue/queue/newQueue")"
+          jq --exit-status '.code == 0' <<< "$proxy_queue_json" > /dev/null
+
+          proxy_task_json="$(curl --fail --silent --show-error \
+            --request POST \
+            --header 'Content-Type: application/json' \
+            --data '{"namespace":"ci","hookUrl":"https://worker.example.com/callback","taskId":"ci-proxy-task"}' \
+            "http://127.0.0.1:${DASHBOARD_PORT}/waitqueue/scheduler/addTask")"
+          jq --exit-status '.code == 0' <<< "$proxy_task_json" > /dev/null
+
+          proxied_json="$(curl --fail --silent --show-error \
+            "http://127.0.0.1:${DASHBOARD_PORT}/waitqueue/admin/overview")"
+          jq --exit-status \
+            '.code == 0 and .data.summary.queueCount == 1 and .data.summary.waiting == 1' \
+            <<< "$proxied_json" > /dev/null
+
+          docker compose exec -T dashboard sh -eu -c \
+            '! grep --recursive --fixed-strings --quiet "$WAITQUEUE_API_TOKEN" /app/.next/static'
 
       - name: Verify migration history and idempotency
         shell: bash

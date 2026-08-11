@@ -30,7 +30,7 @@ export class SchedulerService extends Service {
 			throw new HttpError(404, 'queue not found; register it before adding tasks')
 		}
 
-		this.baseLogInfo(`TaskManager-${namespace}|url:${hookUrl}|taskId:${taskId}|addTask: push task to queue`)
+		this.baseLogInfo('task added to waiting queue', { queueId: queueRes.id, namespace })
 		await this.redis.lpush(getWaitingKey(queueRes.namespace, queueRes.id), taskId)
 		return {
 			isOk: true,

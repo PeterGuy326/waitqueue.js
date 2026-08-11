@@ -74,8 +74,6 @@ RUN --mount=type=cache,id=waitqueue-dashboard-pnpm,target=/pnpm/store \
 
 FROM dashboard-deps AS dashboard-build
 
-ARG WAITQUEUE_API_URL=http://api:3000
-ENV WAITQUEUE_API_URL=$WAITQUEUE_API_URL
 ENV NODE_ENV=production
 
 COPY admin-dashboard/next.config.js admin-dashboard/tsconfig.json ./
@@ -119,4 +117,3 @@ EXPOSE 3101
 HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
 	CMD node -e "fetch('http://127.0.0.1:3101/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
 CMD ["node", "mock-hook.mjs"]
-

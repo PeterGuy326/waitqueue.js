@@ -6,7 +6,7 @@
 
 ![WaitQueue Control Room](docs/control-room.jpg)
 
-> 当前定位是内部服务与二次开发基础设施。API 尚未内置鉴权，`hookUrl` 也会被服务端主动访问；生产部署必须放在可信网络或认证网关之后。
+> 当前定位是内部服务与二次开发基础设施。项目内置可选 Bearer token、精确回调 origin 允许列表、请求大小限制和轻量限流；为兼容本地开发，token 与允许列表默认为空，共享或生产环境必须显式开启并放在带 TLS 和用户认证的网关之后。
 
 ## 它解决什么问题
 
@@ -72,12 +72,15 @@ Compose 会按 `MySQL → 数据库迁移 → API → 控制台` 的顺序启动
 - API 存活检查：[http://127.0.0.1:3000/waitqueue/health](http://127.0.0.1:3000/waitqueue/health)
 - API 就绪检查：[http://127.0.0.1:3000/waitqueue/ready](http://127.0.0.1:3000/waitqueue/ready)
 
-默认只监听 `127.0.0.1`，数据库凭据也只为隔离的本地体验准备。共享或生产环境应先复制配置并替换两个密码；生产暴露应通过带认证与 TLS 的网关完成，而不是把本项目端口直接绑定到公网：
+默认只监听 `127.0.0.1`，数据库凭据也只为隔离的本地体验准备。空 token 和空回调允许列表是兼容模式，不是生产安全默认值。共享或生产环境应先复制配置，替换两个数据库密码，用 `openssl rand -hex 32` 生成 API token，并按实际回调服务填写精确 origin：
 
 ```bash
 cp .env.docker.example .env
+# 编辑 .env：填写独立密码、API token、回调 origin 和外部控制台主机名
 docker compose up --build --detach --wait
 ```
+
+`HOOK_URL_ALLOWLIST` 是逗号分隔的精确 origin，例如 `https://worker.example.com,https://jobs.example.net:8443`；不支持通配符、路径、query 或 fragment。严格模式还会拒绝本机/私网字面量，并在真正连接时校验且固定 DNS 解析结果。生产暴露应通过带用户认证与 TLS 的网关完成，而不是把本项目端口直接绑定到公网。
 
 查看状态与日志：
 
@@ -98,7 +101,7 @@ docker compose down
 docker compose --profile demo up --build --detach --wait
 ```
 
-此时注册队列时使用容器网络地址 `http://mock-hook:3101/callback`。宿主机仍可通过 `http://127.0.0.1:3101/health` 检查示例回调。
+此时注册队列时使用容器网络地址 `http://mock-hook:3101/callback`。如果已开启回调允许列表，还需在根目录 `.env` 中同时加入 `HOOK_URL_ALLOWLIST=http://mock-hook:3101` 和 `HOOK_URL_ALLOW_PRIVATE=true`。后者是仅供隔离演示环境的显式逃生开关，共享/生产必须保持 `false`。宿主机仍可通过 `http://127.0.0.1:3101/health` 检查示例回调。
 
 MySQL 与 Redis 数据保存在命名卷中。只有确认要清空全部队列配置和运行态时，才执行 `docker compose down --volumes`；该操作不可从 Compose 自动恢复。
 
@@ -151,7 +154,11 @@ corepack pnpm --dir wait-queue build
 corepack pnpm --dir wait-queue migrate
 ```
 
-默认配置可直接连接本机 `waitqueue` 数据库和 Redis；非默认账号、端口或密码请在迁移前修改 `wait-queue/.env`。迁移器会按版本执行 `V*.sql`、校验历史文件并跳过已经应用的版本；不要手工重放 SQL 文件。`U*.sql` 是破坏性回滚脚本，不属于正常启动流程。
+默认配置可直接连接本机 `waitqueue` 数据库和 Redis；非默认账号、端口或密码请在迁移前修改 `wait-queue/.env`。如需开启安全边界，还要在 `wait-queue/.env` 填写 `WAITQUEUE_API_TOKEN` 和 `HOOK_URL_ALLOWLIST`，并在后续的 `admin-dashboard/.env.local` 填写同一个 token。token 只由两个服务端读取，不应放入 `NEXT_PUBLIC_*` 变量。
+
+下文的手动演示回调位于本机；若同时演示严格允许列表，请设置 `HOOK_URL_ALLOWLIST=http://127.0.0.1:3101` 和 `HOOK_URL_ALLOW_PRIVATE=true`。这个逃生开关只为隔离的本地演示准备，共享/生产必须保持 `false`。
+
+迁移器会按版本执行 `V*.sql`、校验历史文件并跳过已经应用的版本；不要手工重放 SQL 文件。`U*.sql` 是破坏性回滚脚本，不属于正常启动流程。
 
 从已有数据库升级前，先做可恢复性已验证的备份，并至少完成以下预检：
 
@@ -192,8 +199,14 @@ corepack pnpm --dir admin-dashboard dev
 也可以直接在控制台完成这两步。下面的 curl 便于验证 API：
 
 ```bash
+# 本地兼容模式保持为空；开启鉴权时改为与后端一致的值。
+export WAITQUEUE_API_TOKEN=''
+```
+
+```bash
 curl -X POST http://127.0.0.1:3000/waitqueue/queue/newQueue \
   -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer ${WAITQUEUE_API_TOKEN}" \
   -d '{
     "namespace": "demo",
     "hookUrl": "http://127.0.0.1:3101/callback",
@@ -207,6 +220,7 @@ curl -X POST http://127.0.0.1:3000/waitqueue/queue/newQueue \
 
 curl -X POST http://127.0.0.1:3000/waitqueue/scheduler/addTask \
   -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer ${WAITQUEUE_API_TOKEN}" \
   -d '{
     "namespace": "demo",
     "hookUrl": "http://127.0.0.1:3101/callback",
@@ -285,8 +299,14 @@ docker compose config --quiet
 | `DB_USER` / `DB_PASSWORD` | `root` / 空 | MySQL 凭据 |
 | `REDIS_HOST` / `REDIS_PORT` | `127.0.0.1` / `6379` | Redis 地址 |
 | `REDIS_PASSWORD` | 空 | Redis 密码 |
+| `WAITQUEUE_API_TOKEN` | 空 | 非空时要求管理、队列和调度 API 携带同值 Bearer token |
+| `HOOK_URL_ALLOWLIST` | 空 | 逗号分隔的精确 HTTP(S) origin；非空时拒绝其他回调地址 |
+| `HOOK_URL_ALLOW_PRIVATE` | `false` | 仅本地演示使用；`true` 时允许已显式列入的本机/私网回调 |
+| `REQUEST_BODY_LIMIT_BYTES` | `32768` | JSON 请求体上限，单位字节 |
+| `RATE_LIMIT_MAX_REQUESTS` | `0` | 单进程、单客户端窗口内的最大请求数；`0` 关闭 |
+| `RATE_LIMIT_WINDOW_MS` | `60000` | 限流固定窗口，单位毫秒 |
 
-端口和超时必须为正整数。cron 使用“秒 分 时 日 月 周”六段格式。
+端口、超时和安全数值必须符合表中约束，无效值会让进程在启动时失败。cron 使用“秒 分 时 日 月 周”六段格式。
 
 ### 控制台
 
@@ -295,12 +315,14 @@ docker compose config --quiet
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `WAITQUEUE_API_URL` | `http://127.0.0.1:3000` | Next.js 服务端代理的后端地址 |
+| `WAITQUEUE_API_TOKEN` | 空 | 与后端相同的共享 token，由服务端代理注入 |
+| `DASHBOARD_ALLOWED_HOSTS` | `127.0.0.1,localhost,[::1]` | 逗号分隔的精确控制台主机名，用于阻断 DNS rebinding |
 
-生产环境应在 `build` 和 `start` 阶段提供一致的值。这个变量只在 Next.js 服务端使用，不会打进浏览器代码。
+三个变量都在 `start` 运行时由 Next.js 服务端读取，不会打进浏览器代码或镜像构建层。`DASHBOARD_ALLOWED_HOSTS` 不接受 scheme、路径或通配符，比较时忽略端口；共享域名部署必须显式加入外部 hostname，反向代理应保留或改写为该允许值。
 
 ## HTTP API
 
-所有路径都以 `/waitqueue` 开头，请求和响应使用 JSON。成功响应统一为：
+所有路径都以 `/waitqueue` 开头，请求和响应使用 JSON。`WAITQUEUE_API_TOKEN` 非空时，`/admin/*`、`/queue/*` 和 `/scheduler/*` 必须带 `Authorization: Bearer <token>`；`GET /health`、`GET /ready` 与 `OPTIONS` 保持无鉴权，便于探针与预检。成功响应统一为：
 
 ```json
 {
@@ -310,7 +332,14 @@ docker compose config --quiet
 }
 ```
 
-参数错误返回 HTTP 400，资源不存在返回 404，不支持的方法返回 405，未处理异常返回 500。调用方应同时判断 HTTP 状态码和响应体 `code`。
+参数错误返回 HTTP 400，未认证返回 401，资源不存在返回 404，请求体过大返回 413，限流返回 429 并带 `Retry-After`，不支持的方法返回 405，未处理异常返回 500。调用方应同时判断 HTTP 状态码和响应体 `code`。
+
+### 安全边界
+
+- API token 是服务间共享凭据，不是用户登录或细粒度授权。控制台的服务端代理只转发三个明确的 API，丢弃浏览器传入的 Authorization、Cookie 和转发头，再注入服务端 token。任何能访问控制台的人仍可借此操作队列，因此共享部署仍需认证网关。
+- 回调允许列表按 WHATWG URL 归一化后精确比较 origin，每次真正发送前会再校验。严格模式拒绝 loopback、link-local、私网与本地主机名；域名的所有 DNS 结果也会在连接前校验，实际 socket 固定使用已校验地址。回调不跟随 3xx。`HOOK_URL_ALLOW_PRIVATE=true` 仅用于显式列入的隔离本地演示服务。
+- 内存限流按 API 进程和直连 IP 生效，不信任 `X-Forwarded-For`。多副本或公网环境要由网关补充全局限流；对出站网络要求更强隔离时，应配置出站代理或网络策略。
+- 所有写请求（成功或失败）与鉴权/限流拒绝都会生成结构化审计日志；请求体、token、Cookie、完整回调 URL 和 taskId 不会进入审计字段。
 
 ### 健康检查
 
@@ -477,14 +506,15 @@ docker compose config --quiet
 - 浅色/深色主题与移动端布局；
 - 离线、过期、加载和空数据状态。
 
-浏览器只请求当前控制台域名；Next.js 根据 `WAITQUEUE_API_URL` 代理 API，因此后端无需 CORS。页面不伪造历史趋势、成功率或平均耗时，因为当前存储模型没有这些数据。
+浏览器只请求当前控制台域名；Next.js 运行时服务端代理按白名单转发 API，并在配置时注入 `WAITQUEUE_API_TOKEN`，因此后端无需 CORS，token 也不进入浏览器 bundle。页面不伪造历史趋势、成功率或平均耗时，因为当前存储模型没有这些数据。
 
 更多前端说明见 [admin-dashboard/README.md](admin-dashboard/README.md)。
 
 ## 已知边界
 
-- 所有 API 当前都没有鉴权；只应暴露在可信网络中，并由网关补充认证、授权与限流。
-- `hookUrl` 会被服务端主动请求。开放注册能力前必须增加主机/网段白名单，防范 SSRF。
+- API token 和回调允许列表为空时保持兼容模式；该模式只适合隔离的本地开发。共享环境必须显式配置两者。
+- 内置 token 是单一共享凭据，控制台代理也不是用户登录系统；多用户环境仍需由网关补充认证、授权、TLS 和全局限流。
+- `hookUrl` 会被服务端主动请求。严格模式已校验并固定 DNS 结果，但出站代理/网络策略仍是生产环境必要的纵深防御。不要在共享或生产环境开启 `HOOK_URL_ALLOW_PRIVATE`。
 - cron 在应用进程内运行，没有 leader election；当前推荐单实例，多实例会重复触发 `check` / `expire`。
 - Redis 是任务运行态的唯一存储，应按恢复目标配置持久化、高可用和备份。
 - 当前是单节点 ioredis 客户端；使用 Redis Cluster 前应改为 Cluster 客户端，并给同一队列的 key 添加一致 hash tag。

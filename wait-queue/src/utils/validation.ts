@@ -1,6 +1,11 @@
 import { CronTime } from 'cron'
 import { AddTaskRequest, NewQueueRequest, QueueCrontab } from '../types/api'
 import { HttpError } from './http_error'
+import {
+	HookUrlPolicy,
+	HookUrlPolicyError,
+	permissiveHookUrlPolicy,
+} from '../security/hook_url_policy'
 
 export const DEFAULT_QUEUE_CONCURRENCY = 5
 export const DEFAULT_QUEUE_CRONTAB: QueueCrontab = Object.freeze({
@@ -30,13 +35,13 @@ function requiredString(source: JsonObject, field: string, maxLength: number): s
 	return normalized
 }
 
-function hookUrl(source: JsonObject): string {
+function hookUrl(source: JsonObject, policy: HookUrlPolicy): string {
 	const value = requiredString(source, 'hookUrl', 255)
 	try {
-		const parsed = new URL(value)
-		if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('unsupported protocol')
-	} catch {
-		throw new HttpError(400, 'hookUrl must be a valid HTTP(S) URL')
+		policy.assertAllowed(value)
+	} catch (error) {
+		if (error instanceof HookUrlPolicyError) throw new HttpError(400, error.message)
+		throw error
 	}
 	return value
 }
@@ -57,7 +62,10 @@ function cronExpression(value: unknown, field: keyof QueueCrontab): string {
 	return normalized
 }
 
-export function validateNewQueueInput(value: unknown): NewQueueRequest {
+export function validateNewQueueInput(
+	value: unknown,
+	hookUrlPolicy: HookUrlPolicy = permissiveHookUrlPolicy
+): NewQueueRequest {
 	const body = asObject(value)
 	const rawConcurrency = body.currMaxCount ?? DEFAULT_QUEUE_CONCURRENCY
 	if (!Number.isInteger(rawConcurrency) || (rawConcurrency as number) < 1 || (rawConcurrency as number) > 1000) {
@@ -66,7 +74,7 @@ export function validateNewQueueInput(value: unknown): NewQueueRequest {
 
 	const rawCrontab = body.crontab === undefined ? {} : asObject(body.crontab)
 	return {
-		hookUrl: hookUrl(body),
+		hookUrl: hookUrl(body, hookUrlPolicy),
 		namespace: requiredString(body, 'namespace', 64),
 		currMaxCount: rawConcurrency as number,
 		crontab: {
@@ -77,10 +85,13 @@ export function validateNewQueueInput(value: unknown): NewQueueRequest {
 	}
 }
 
-export function validateAddTaskInput(value: unknown): AddTaskRequest {
+export function validateAddTaskInput(
+	value: unknown,
+	hookUrlPolicy: HookUrlPolicy = permissiveHookUrlPolicy
+): AddTaskRequest {
 	const body = asObject(value)
 	return {
-		hookUrl: hookUrl(body),
+		hookUrl: hookUrl(body, hookUrlPolicy),
 		namespace: requiredString(body, 'namespace', 64),
 		taskId: requiredString(body, 'taskId', 256),
 	}

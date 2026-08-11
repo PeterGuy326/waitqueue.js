@@ -4,6 +4,8 @@ import { Redis } from 'ioredis'
 import { Service } from './service'
 import { TaskRun } from './task_run'
 import { redisCli } from '../conf/redis'
+import { env } from '../conf/env'
+import { HookUrlPolicy } from '../security/hook_url_policy'
 
 const CLAIM_TASKS_SCRIPT = `
 local maxRunning = tonumber(ARGV[1])
@@ -69,7 +71,8 @@ interface TaskClaim {
 }
 
 export class TaskManager extends Service {
-	private url: string
+	private queueId: number
+	private namespace: string
 	private runningKey: string // 正在执行的任务
 	private waitingKey: string // 等待执行的任务
 	private taskRunningCount: number // 并发执行的任务数
@@ -82,23 +85,27 @@ export class TaskManager extends Service {
 		url: string,
 		runningKey: string,
 		waitingKey: string,
-		taskRunningCount: number
+		taskRunningCount: number,
+		hookUrlPolicy: HookUrlPolicy = new HookUrlPolicy(env.security.hookUrlAllowlist, {
+			allowPrivate: env.security.allowPrivateHookUrls,
+		})
 	) {
 		super(ctx)
-		this.url = url
+		this.queueId = queueId
+		this.namespace = namespace
 		this.runningKey = runningKey
 		this.waitingKey = waitingKey
 		this.taskRunningCount = taskRunningCount
-		this.taskRunInstance = new TaskRun(this.ctx, this.url, queueId, namespace)
+		this.taskRunInstance = new TaskRun(this.ctx, url, queueId, namespace, hookUrlPolicy)
 		this.redis = redisCli.getInstance()
 	}
 
 	private async dispatchTask({ taskId, claimToken }: TaskClaim): Promise<void> {
 		try {
 			await this.taskRunInstance.run(taskId)
-			this.selfLog('task trigger success', taskId)
+			this.selfLog('task trigger succeeded')
 		} catch (error: any) {
-			this.baseLogError(`task trigger failed: ${taskId}`, error)
+			this.baseLogError('task trigger failed', error)
 			try {
 				const requeued = await this.redis.eval(
 					REQUEUE_TASK_SCRIPT,
@@ -109,11 +116,10 @@ export class TaskManager extends Service {
 					claimToken
 				)
 				this.selfLog(
-					requeued === 1 ? 'task trigger failed; task returned to waiting queue' : 'task trigger failed; stale claim ignored',
-					taskId
+					requeued === 1 ? 'task trigger failed; task returned to waiting queue' : 'task trigger failed; stale claim ignored'
 				)
 			} catch (redisError) {
-				this.baseLogError(`failed to return task to waiting queue: ${taskId}`, redisError)
+				this.baseLogError('failed to return task to waiting queue', redisError)
 			}
 		}
 	}
@@ -163,7 +169,7 @@ export class TaskManager extends Service {
 			this.selfLog(`runTask: claimed task count: ${claims.length}`)
 			await Promise.all(
 				claims.map((claim) => {
-					this.selfLog('runTask: prepare exec task', claim.taskId)
+					this.selfLog('runTask: prepare exec task')
 					return this.dispatchTask(claim)
 				})
 			)
@@ -181,7 +187,7 @@ export class TaskManager extends Service {
 		this.selfLog('CheckStatus: check task status start')
 		const taskMap = await this.redis.hgetall(this.runningKey)
 		const taskIds = Object.keys(taskMap)
-		this.selfLog('CheckStatus: 正在执行中的任务 id ', taskIds.join(','))
+		this.selfLog(`CheckStatus: running task count: ${taskIds.length}`)
 		const completeIds = await this.taskRunInstance.checkTaskStatus(
 			taskIds.filter((item) => {
 				return item !== ''
@@ -189,7 +195,7 @@ export class TaskManager extends Service {
 		)
 		const releasedIds = await this.releaseTasks(taskMap, completeIds)
 		if (releasedIds.length) {
-			this.selfLog('CheckStatus: 从 runningkey 中移除的已完成任务 id ', releasedIds.join(','))
+			this.selfLog(`CheckStatus: released completed task count: ${releasedIds.length}`)
 		}
 	}
 
@@ -203,16 +209,16 @@ export class TaskManager extends Service {
 		const taskMap = await this.redis.hgetall(this.runningKey)
 
 		const expiredIds = await this.taskRunInstance.expireTasks()
-		this.selfLog('ExpireTask: 任务实际过期任务 id 列表 ', expiredIds.join(','))
+		this.selfLog(`ExpireTask: expired task count: ${expiredIds.length}`)
 
 		// 获取实际已过期但是仍然在缓存执行队列中的任务 id
 		const releasedIds = await this.releaseTasks(taskMap, expiredIds)
 		if (releasedIds.length) {
-			this.selfLog('ExpireTask: 从 runningkey 中移除的过期任务 id ', releasedIds.join(','))
+			this.selfLog(`ExpireTask: released expired task count: ${releasedIds.length}`)
 		}
 	}
 
-	selfLog(message: string, taskId?: string): void {
-		this.baseLogInfo(`${this.url}${'|taskId: ' + taskId}|${message}`)
+	selfLog(message: string): void {
+		this.baseLogInfo(message, { queueId: this.queueId, namespace: this.namespace })
 	}
 }

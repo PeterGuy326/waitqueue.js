@@ -3,29 +3,73 @@ import Router from '@koa/router'
 import koaPino from 'koa-pino-logger'
 import bodyParser from 'koa-bodyparser'
 import { CronJob } from 'cron'
-import { queueRoutes } from './routes/queue'
-import { schedulerRoutes } from './routes/scheduler'
+import { createQueueRoutes } from './routes/queue'
+import { createSchedulerRoutes } from './routes/scheduler'
 import { adminRoutes } from './routes/admin'
 import { errorHandler } from './middleware/error_handler'
+import { auditMiddleware, createBearerAuth, createRateLimit } from './middleware/security'
 import response from './utils/response'
 import { HttpError } from './utils/http_error'
 import { env } from './conf/env'
 import { daoMysql } from './conf/db'
 import { redisCli } from './conf/redis'
 import { Timer } from './lib/timer'
-import { createBackgroundContext, logger } from './common/logger'
+import {
+	createBackgroundContext,
+	LOGGER_REDACT_PATHS,
+	logger,
+	safeErrorSerializer,
+	safeRequestSerializer,
+} from './common/logger'
 import { createReadinessCheck, ReadinessCheck, ReadinessResult } from './service/readiness'
+import {
+	createSecurityConfigurationWarner,
+	createSecurityConfig,
+	SecurityConfigInput,
+} from './security/config'
+import { FixedWindowRateLimiter } from './security/rate_limit'
+import { HookUrlPolicy } from './security/hook_url_policy'
+
+const warnSecurityConfiguration = createSecurityConfigurationWarner(logger)
 
 export interface CreateAppOptions {
 	readinessCheck?: ReadinessCheck
+	security?: SecurityConfigInput
+	rateLimitClock?: () => number
+	requestLogStream?: NodeJS.WritableStream
 }
 
 export function createApp(options: CreateAppOptions = {}): Koa {
 	const app = new Koa()
 	const readinessCheck = options.readinessCheck ?? createReadinessCheck()
-	app.use(koaPino())
+	const security = createSecurityConfig(options.security ?? env.security)
+	const hookUrlPolicy = new HookUrlPolicy(security.hookUrlAllowlist, {
+		allowPrivate: security.allowPrivateHookUrls,
+	})
+	const rateLimiter = new FixedWindowRateLimiter(
+		security.rateLimitMaxRequests,
+		security.rateLimitWindowMs,
+		options.rateLimitClock
+	)
+	app.use(
+		koaPino(
+			{
+				redact: { paths: [...LOGGER_REDACT_PATHS], censor: '[REDACTED]' },
+				serializers: { err: safeErrorSerializer, req: safeRequestSerializer },
+			},
+			options.requestLogStream as any
+		)
+	)
+	app.use(auditMiddleware)
 	app.use(errorHandler)
-	app.use(bodyParser())
+	app.use(createRateLimit(rateLimiter))
+	app.use(createBearerAuth(security.apiToken))
+	app.use(
+		bodyParser({
+			enableTypes: ['json'],
+			jsonLimit: `${security.requestBodyLimitBytes}b`,
+		})
+	)
 	app.use(async (ctx, next) => {
 		await next()
 		if (ctx.status === 404 && !ctx.body) {
@@ -34,7 +78,7 @@ export function createApp(options: CreateAppOptions = {}): Koa {
 		}
 	})
 
-	const router = new Router({ prefix: '/waitqueue' })
+	const router = new Router({ prefix: '/waitqueue', sensitive: true })
 	router.get('/health', (ctx) => response.success(ctx, { status: 'ok' }))
 	router.get('/ready', async (ctx) => {
 		ctx.set('Cache-Control', 'no-store')
@@ -59,8 +103,8 @@ export function createApp(options: CreateAppOptions = {}): Koa {
 		response.success(ctx, { status: 'ready', dependencies: readiness.dependencies })
 	})
 	router.use('/admin', adminRoutes.routes())
-	router.use('/scheduler', schedulerRoutes.routes())
-	router.use('/queue', queueRoutes.routes())
+	router.use('/scheduler', createSchedulerRoutes(hookUrlPolicy).routes())
+	router.use('/queue', createQueueRoutes(hookUrlPolicy).routes())
 
 	app.use(router.routes())
 	app.use(
@@ -74,6 +118,7 @@ export function createApp(options: CreateAppOptions = {}): Koa {
 }
 
 export async function start() {
+	warnSecurityConfiguration(env.security)
 	const database = daoMysql.getInstance()
 	const redis = redisCli.getInstance()
 	let timer: Timer | undefined
