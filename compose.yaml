@@ -73,6 +73,12 @@ services:
     environment:
       <<: *api-environment
       APP_PORT: 3000
+      WAITQUEUE_API_TOKEN: ${WAITQUEUE_API_TOKEN:-}
+      HOOK_URL_ALLOWLIST: ${HOOK_URL_ALLOWLIST:-}
+      HOOK_URL_ALLOW_PRIVATE: ${HOOK_URL_ALLOW_PRIVATE:-false}
+      REQUEST_BODY_LIMIT_BYTES: ${REQUEST_BODY_LIMIT_BYTES:-32768}
+      RATE_LIMIT_MAX_REQUESTS: ${RATE_LIMIT_MAX_REQUESTS:-0}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${API_PORT:-3000}:3000"
     depends_on:
@@ -105,11 +111,11 @@ services:
       context: .
       dockerfile: Dockerfile
       target: dashboard
-      args:
-        WAITQUEUE_API_URL: http://api:3000
     restart: unless-stopped
     environment:
       WAITQUEUE_API_URL: http://api:3000
+      WAITQUEUE_API_TOKEN: ${WAITQUEUE_API_TOKEN:-}
+      DASHBOARD_ALLOWED_HOSTS: ${DASHBOARD_ALLOWED_HOSTS:-127.0.0.1,localhost,[::1]}
       PORT: 3001
       HOSTNAME: 0.0.0.0
     ports:

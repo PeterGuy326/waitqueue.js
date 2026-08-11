@@ -11,6 +11,7 @@ function replaceModule(modulePath, exports) {
 }
 
 const cronInstances = []
+const taskManagerPolicies = []
 class FakeCronJob {
 	constructor(cron, onTick) {
 		if (cron === 'invalid-cron') throw new Error('invalid cron')
@@ -37,6 +38,9 @@ const cronPath = require.resolve('cron')
 replaceModule(queueDaoPath, { QueueDao: { async findAll() { return queueRows } } })
 replaceModule(taskManagerPath, {
 	TaskManager: class {
+		constructor(...args) {
+			taskManagerPolicies.push(args.at(-1))
+		}
 		async runTask() {}
 		async checkTaskStatus() {}
 		async expireTask() {}
@@ -45,6 +49,7 @@ replaceModule(taskManagerPath, {
 replaceModule(cronPath, { CronJob: FakeCronJob })
 
 const { Timer } = require('../dist/lib/timer.js')
+const { HookUrlPolicy } = require('../dist/security/hook_url_policy.js')
 
 function createContext() {
 	return {
@@ -67,10 +72,12 @@ function queue(count = 2, overrides = {}) {
 }
 
 test('timer reuses unchanged jobs, replaces changed configuration, and stops deleted queues', async () => {
-	const timer = new Timer(createContext())
+	const hookUrlPolicy = new HookUrlPolicy(['https://worker.example.com'])
+	const timer = new Timer(createContext(), hookUrlPolicy)
 	queueRows = [queue(2)]
 
 	await timer.initializeQueueList()
+	assert.equal(taskManagerPolicies[0], hookUrlPolicy, 'timer must pass its callback policy to each task manager')
 	assert.equal(cronInstances.length, 3)
 	assert.ok(cronInstances.every((job) => job.started && !job.stopped))
 

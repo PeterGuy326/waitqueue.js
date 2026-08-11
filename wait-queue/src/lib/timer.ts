@@ -6,6 +6,7 @@ import { Service } from './service'
 import { TaskManager } from './task_manager'
 import { getRunningKey, getWaitingKey } from '../common/cache'
 import { env } from '../conf/env'
+import { HookUrlPolicy } from '../security/hook_url_policy'
 
 interface TaskJob {
 	cron: string
@@ -34,12 +35,19 @@ export class Timer extends Service {
 	private checkTaskJobMap: Map<string, TaskJob>
 	private expireTaskJobMap: Map<string, TaskJob>
 	private queueDao: ModelCtor<QueueAttributes>
-	constructor(ctx: Context) {
+	private hookUrlPolicy: HookUrlPolicy
+	constructor(
+		ctx: Context,
+		hookUrlPolicy: HookUrlPolicy = new HookUrlPolicy(env.security.hookUrlAllowlist, {
+			allowPrivate: env.security.allowPrivateHookUrls,
+		})
+	) {
 		super(ctx)
 		this.runTaskJobMap = runTaskJob
 		this.checkTaskJobMap = checkTaskJob
 		this.expireTaskJobMap = expireTaskJob
 		this.queueDao = QueueDao
+		this.hookUrlPolicy = hookUrlPolicy
 	}
 
 	initializeQueueList(queueIds: number[] = []): Promise<void> {
@@ -85,7 +93,7 @@ export class Timer extends Service {
 	}
 
 	queueUniqKey(queueInfo: QueueAttributes) {
-		return JSON.stringify([queueInfo.namespace, queueInfo.url])
+		return `queue:${queueInfo.id}`
 	}
 
 	syncQueueJob(queueInfo: QueueAttributes) {
@@ -98,9 +106,16 @@ export class Timer extends Service {
 			queueInfo.url,
 			getRunningKey(queueInfo.namespace, queueInfo.id),
 			getWaitingKey(queueInfo.namespace, queueInfo.id),
-			queueInfo.count
+			queueInfo.count,
+			this.hookUrlPolicy
 		)
-		const queueSignature = JSON.stringify([queueInfo.id, queueInfo.namespace, queueInfo.url, queueInfo.count])
+		const queueSignature = JSON.stringify([
+			queueInfo.id,
+			queueInfo.namespace,
+			queueInfo.url,
+			queueInfo.count,
+			this.hookUrlPolicy.configurationKey,
+		])
 		const replacements: JobReplacement[] = []
 		;[
 			{ job: this.runTaskJobMap, cronTab: queueInfo.runCrontab, execFunc: taskInstance.runTask.bind(taskInstance) },

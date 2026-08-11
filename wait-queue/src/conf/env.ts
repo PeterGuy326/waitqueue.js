@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { readSecurityConfig } from '../security/config'
 
 function readPositiveInteger(name: string, fallback: number): number {
 	const raw = process.env[name]
@@ -28,4 +29,5 @@ export const env = Object.freeze({
 		port: readPositiveInteger('REDIS_PORT', 6379),
 		password: process.env.REDIS_PASSWORD || undefined,
 	}),
+	security: readSecurityConfig(),
 })

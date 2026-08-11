@@ -5,12 +5,21 @@ import { ModelCtor } from 'sequelize'
 import { Timer } from '../lib/timer'
 import { NewQueueRequest, OperationResult } from '../types/api'
 import { createBackgroundContext } from '../common/logger'
+import { HookUrlPolicy } from '../security/hook_url_policy'
+import { env } from '../conf/env'
 
 export class QueueService extends Service {
 	private queueDao: ModelCtor<QueueAttributes>
-	constructor(ctx: Context) {
+	private hookUrlPolicy: HookUrlPolicy
+	constructor(
+		ctx: Context,
+		hookUrlPolicy: HookUrlPolicy = new HookUrlPolicy(env.security.hookUrlAllowlist, {
+			allowPrivate: env.security.allowPrivateHookUrls,
+		})
+	) {
 		super(ctx)
 		this.queueDao = QueueDao
+		this.hookUrlPolicy = hookUrlPolicy
 	}
 
 	async newQueue(params: NewQueueRequest): Promise<OperationResult> {
@@ -36,7 +45,7 @@ export class QueueService extends Service {
 			})
 		}
 
-		await new Timer(createBackgroundContext()).initializeQueueList([queue.id])
+		await new Timer(createBackgroundContext(), this.hookUrlPolicy).initializeQueueList([queue.id])
 
 		return { isOk: true }
 	}
