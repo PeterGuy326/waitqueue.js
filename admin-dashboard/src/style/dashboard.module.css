@@ -101,7 +101,7 @@
   width: 100%;
   margin: 0 !important;
   overflow: visible;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
   text-align: center;
@@ -182,13 +182,13 @@
 .catalogHeaderCopy small {
   margin-top: 1px;
   color: var(--ui-foreground-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .catalogHeader :global(.ant-badge-count) {
   color: var(--ui-primary-foreground);
   box-shadow: none;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .catalogSearch {
@@ -197,7 +197,7 @@
 
 .catalogSearch :global(.ant-input-affix-wrapper) {
   background: var(--ui-surface-raised);
-  border-color: var(--ui-border);
+  border-color: var(--ui-control-border);
 }
 
 .catalogSearch :global(.ant-input-prefix) {
@@ -210,7 +210,7 @@
   justify-content: space-between;
   padding: 10px 18px 7px;
   color: var(--ui-foreground-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -253,7 +253,7 @@
 .queueNav > button.queueNavActive {
   color: var(--ui-foreground);
   background: var(--ui-surface-raised);
-  border-color: var(--ui-border);
+  border-color: var(--ui-control-border);
   box-shadow: inset 2px 0 var(--ui-primary), var(--ui-shadow-sm);
 }
 
@@ -305,7 +305,7 @@
   overflow: hidden;
   margin-top: 3px;
   color: var(--ui-foreground-muted);
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -325,7 +325,7 @@
 
 .queueNavCount small {
   color: var(--ui-foreground-muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .catalogEmpty {
@@ -349,7 +349,7 @@
   justify-content: center;
   gap: 5px;
   color: var(--ui-foreground-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .mainLayout {
@@ -406,8 +406,8 @@
 }
 
 .updated {
-  color: var(--ui-foreground-subtle);
-  font-size: 11px;
+  color: var(--ui-foreground-muted);
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -496,7 +496,7 @@
   align-items: center;
   gap: 10px;
   margin-top: 12px;
-  color: var(--ui-foreground-subtle);
+  color: var(--ui-foreground-muted);
   font-size: 12px;
 }
 
@@ -612,7 +612,7 @@
 
 .metricCard :global(.ant-statistic-content-suffix) {
   margin-left: 5px;
-  color: var(--ui-foreground-subtle);
+  color: var(--ui-foreground-muted);
   font-size: 12px;
   font-weight: 500;
 }
@@ -620,7 +620,7 @@
 .metricCard > :global(.ant-card-body) > p {
   min-height: 20px;
   margin: 8px 0 0;
-  color: var(--ui-foreground-subtle);
+  color: var(--ui-foreground-muted);
   font-size: 12px;
 }
 
@@ -689,8 +689,8 @@
 
 .cardHeading small {
   margin-top: 2px;
-  color: var(--ui-foreground-subtle);
-  font-size: 11px;
+  color: var(--ui-foreground-muted);
+  font-size: 12px;
   font-weight: 400;
 }
 
@@ -706,6 +706,14 @@
 .queueHealthCard :global(.ant-table-container) {
   border-start-start-radius: 0 !important;
   border-start-end-radius: 0 !important;
+}
+
+.queueHealthCard :global(.ant-btn-link) {
+  color: var(--ui-primary);
+}
+
+.queueHealthCard :global(.ant-btn-link:hover) {
+  color: var(--ui-primary-hover);
 }
 
 .queueIdentity {
@@ -737,8 +745,8 @@
 
 .queueIdentity span {
   overflow: hidden;
-  color: var(--ui-foreground-subtle);
-  font-size: 11px;
+  color: var(--ui-foreground-muted);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -764,8 +772,8 @@
 
 .tableMetric small {
   margin-top: 2px;
-  color: var(--ui-foreground-subtle);
-  font-size: 11px;
+  color: var(--ui-foreground-muted);
+  font-size: 12px;
 }
 
 .capacityCell {
@@ -786,7 +794,7 @@
 }
 
 .dangerText {
-  color: var(--ui-danger) !important;
+  color: color-mix(in srgb, var(--ui-danger) 92%, var(--ui-foreground)) !important;
 }
 
 .mobileQueueList,
@@ -835,7 +843,7 @@
   color: var(--ui-foreground-muted);
   background: var(--ui-surface-inset);
   border-radius: 10px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -877,8 +885,8 @@
 }
 
 .capacitySummary small {
-  color: var(--ui-foreground-subtle);
-  font-size: 11px;
+  color: var(--ui-foreground-muted);
+  font-size: 12px;
 }
 
 .scheduleList {
@@ -989,8 +997,8 @@
   justify-content: space-between;
   gap: 12px;
   margin: 13px 0;
-  color: var(--ui-foreground-subtle);
-  font-size: 11px;
+  color: var(--ui-foreground-muted);
+  font-size: 12px;
 }
 
 .pagination {
@@ -1062,9 +1070,9 @@
 .healthCopy small {
   overflow: hidden;
   margin-top: 2px;
-  color: var(--ui-foreground-subtle);
+  color: var(--ui-foreground-muted);
   font-family: var(--ui-font-mono);
-  font-size: 10px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1114,13 +1122,13 @@
   gap: 20px;
   margin-top: 28px;
   padding: 14px 2px 0;
-  color: var(--ui-foreground-subtle);
+  color: var(--ui-foreground-muted);
   border-top: 1px solid var(--ui-border);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .footer code {
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .formGrid {
@@ -1379,8 +1387,8 @@
   }
 
   .mobileQueueMetrics small {
-    color: var(--ui-foreground-subtle);
-    font-size: 10px;
+    color: var(--ui-foreground-muted);
+    font-size: 12px;
   }
 
   .mobileQueueMetrics b {

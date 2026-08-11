@@ -104,7 +104,7 @@ Browser
 
 ## 技术与目录
 
-运行时直接依赖只有 Next.js、React、Ant Design、Lucide 图标与 Ant SSR 样式运行时；没有 Ant Design Pro、Redux、Axios、Mock.js、Tailwind、Radix 或图表库。Lucide 与设计系统的图标契约一致，并按组件 tree-shaking。Pages Router 使用 `_document.tsx` 提取 Ant Design CSS-in-JS 样式，避免首屏闪烁。Next 16 的开发与生产构建显式使用 Webpack，以确保 Ant Design 与提取器共享同一个样式上下文；CI 会检查产物中存在真实 Ant 组件规则，而不只检查空的 style 标签。
+运行时直接依赖只有 Next.js、React、Ant Design、Lucide 图标与 Ant SSR 样式运行时；没有 Ant Design Pro、Redux、Axios、Mock.js、Tailwind、Radix 或图表库。Lucide 与设计系统的图标契约一致，并按组件 tree-shaking。Pages Router 使用 `_document.tsx` 提取 Ant Design CSS-in-JS 样式，避免首屏闪烁；浅色与深色使用独立的 Ant CSS variable scope，避免服务端浅色变量覆盖客户端深色状态。Next 16 的开发与生产构建显式使用 Webpack，以确保 Ant Design 与提取器共享同一个样式上下文；CI 会检查真实 Ant 组件规则、主题隔离和关键暗色文字对比度。
 
 ```text
 admin-dashboard/

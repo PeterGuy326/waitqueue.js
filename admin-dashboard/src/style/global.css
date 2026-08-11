@@ -17,6 +17,7 @@
   --ui-foreground-subtle: #6c6e67;
   --ui-border: #d9d4ca;
   --ui-border-strong: #c6c1b7;
+  --ui-control-border: #929088;
   --ui-primary: #5f735e;
   --ui-primary-hover: #50644f;
   --ui-primary-foreground: #fbfdf8;
@@ -87,6 +88,7 @@
   --ui-foreground-subtle: #93948c;
   --ui-border: #3f423c;
   --ui-border-strong: #555950;
+  --ui-control-border: #737b6e;
   --ui-primary: #a1b69d;
   --ui-primary-hover: #b2c6ae;
   --ui-primary-foreground: #1c251c;
