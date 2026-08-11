@@ -4,9 +4,10 @@ import { QueueAttributes, QueueDao } from '../dao/queue_dao'
 import { ModelCtor } from 'sequelize'
 import { Redis } from 'ioredis'
 import { redisCli } from '../conf/redis'
-import { getWaitingKey } from '../common/cache'
 import { AddTaskRequest, OperationResult } from '../types/api'
 import { HttpError } from '../utils/http_error'
+import { RedisTaskStore } from '../reliability/task_store'
+import { env } from '../conf/env'
 
 export class SchedulerService extends Service {
 	private queueDao: ModelCtor<QueueAttributes>
@@ -30,8 +31,16 @@ export class SchedulerService extends Service {
 			throw new HttpError(404, 'queue not found; register it before adding tasks')
 		}
 
+		const taskStore = new RedisTaskStore(
+			this.redis,
+			queueRes.namespace,
+			queueRes.id,
+			env.reliability
+		)
+		if (!(await taskStore.enqueue(taskId))) {
+			throw new HttpError(409, 'task already exists in this queue')
+		}
 		this.baseLogInfo('task added to waiting queue', { queueId: queueRes.id, namespace })
-		await this.redis.lpush(getWaitingKey(queueRes.namespace, queueRes.id), taskId)
 		return {
 			isOk: true,
 		}

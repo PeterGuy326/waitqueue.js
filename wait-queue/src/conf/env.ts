@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import { readSecurityConfig } from '../security/config'
+import { readReliabilityConfig } from '../reliability/config'
 
 function readPositiveInteger(name: string, fallback: number): number {
 	const raw = process.env[name]
@@ -12,9 +13,15 @@ function readPositiveInteger(name: string, fallback: number): number {
 	return value
 }
 
+const hookTimeoutMs = readPositiveInteger('HOOK_TIMEOUT_MS', 10_000)
+const reliability = readReliabilityConfig()
+if (reliability.claimLeaseMs <= hookTimeoutMs) {
+	throw new Error('TASK_CLAIM_LEASE_MS must be greater than HOOK_TIMEOUT_MS')
+}
+
 export const env = Object.freeze({
 	appPort: readPositiveInteger('APP_PORT', 3000),
-	hookTimeoutMs: readPositiveInteger('HOOK_TIMEOUT_MS', 10_000),
+	hookTimeoutMs,
 	queueSyncCron: process.env.CHECK_TASK_DIFF_CRON || '0 * * * * *',
 	cronTimezone: process.env.CRON_TIMEZONE || 'Asia/Shanghai',
 	database: Object.freeze({
@@ -30,4 +37,5 @@ export const env = Object.freeze({
 		password: process.env.REDIS_PASSWORD || undefined,
 	}),
 	security: readSecurityConfig(),
+	reliability,
 })

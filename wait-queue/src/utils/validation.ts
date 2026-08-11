@@ -1,5 +1,11 @@
 import { CronTime } from 'cron'
-import { AddTaskRequest, NewQueueRequest, QueueCrontab } from '../types/api'
+import {
+	AddTaskRequest,
+	DeadLetterQuery,
+	NewQueueRequest,
+	QueueCrontab,
+	ReplayDeadLetterRequest,
+} from '../types/api'
 import { HttpError } from './http_error'
 import {
 	HookUrlPolicy,
@@ -94,5 +100,60 @@ export function validateAddTaskInput(
 		hookUrl: hookUrl(body, hookUrlPolicy),
 		namespace: requiredString(body, 'namespace', 64),
 		taskId: requiredString(body, 'taskId', 256),
+	}
+}
+
+function positiveInteger(value: unknown, field: string): number {
+	const parsed =
+		typeof value === 'number'
+			? value
+			: typeof value === 'string' && /^\d+$/.test(value)
+				? Number(value)
+				: Number.NaN
+	if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+		throw new HttpError(400, `${field} must be a positive integer`)
+	}
+	return parsed
+}
+
+function boundedInteger(
+	value: unknown,
+	field: string,
+	fallback: number,
+	minimum: number,
+	maximum: number
+): number {
+	if (value === undefined) return fallback
+	const parsed =
+		typeof value === 'number'
+			? value
+			: typeof value === 'string' && /^\d+$/.test(value)
+				? Number(value)
+				: Number.NaN
+	if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+		throw new HttpError(400, `${field} must be an integer between ${minimum} and ${maximum}`)
+	}
+	return parsed
+}
+
+export function validateDeadLetterQuery(value: unknown): DeadLetterQuery {
+	const query = asObject(value)
+	return {
+		queueId: positiveInteger(query.queueId, 'queueId'),
+		offset: boundedInteger(query.offset, 'offset', 0, 0, 10_000),
+		limit: boundedInteger(query.limit, 'limit', 50, 1, 100),
+	}
+}
+
+export function validateReplayDeadLetterInput(value: unknown): ReplayDeadLetterRequest {
+	const body = asObject(value)
+	const entryId = requiredString(body, 'entryId', 128)
+	if (!/^[A-Za-z0-9:._-]+$/.test(entryId)) {
+		throw new HttpError(400, 'entryId contains unsupported characters')
+	}
+	return {
+		queueId: positiveInteger(body.queueId, 'queueId'),
+		taskId: requiredString(body, 'taskId', 256),
+		entryId,
 	}
 }

@@ -45,6 +45,8 @@ const SAFE_REQUEST_PATHS = new Set([
 	'/waitqueue/health',
 	'/waitqueue/ready',
 	'/waitqueue/admin/overview',
+	'/waitqueue/admin/deadLetters',
+	'/waitqueue/admin/deadLetters/replay',
 	'/waitqueue/queue/newQueue',
 	'/waitqueue/scheduler/addTask',
 ])

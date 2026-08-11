@@ -24,6 +24,18 @@ jobs:
     name: Backend tests
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      WAITQUEUE_REDIS_INTEGRATION_URL: redis://127.0.0.1:6379/15
+    services:
+      redis:
+        image: redis:7.4.10-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -359,6 +371,48 @@ jobs:
           jq --exit-status \
             '.code == 0 and .data.summary.queueCount == 1 and .data.summary.waiting == 1' \
             <<< "$proxied_json" > /dev/null
+
+          queue_id="$(jq --raw-output '.data.queues[0].queueId' <<< "$proxied_json")"
+          dead_entry_id='ci-dead-entry-1'
+          dead_task_id='ci-dead-task'
+          dead_metadata="$(jq --compact-output --null-input \
+            --arg entryId "$dead_entry_id" \
+            '{entryId: $entryId, retryCount: 2, failedAt: 1700000000000, reason: "callback_failed", token: "pending:ci-old-claim"}')"
+          docker compose exec -T redis redis-cli HSET \
+            "TaskQueue:ci:${queue_id}:deadLetterHashKv" "$dead_task_id" "$dead_metadata" > /dev/null
+          docker compose exec -T redis redis-cli ZADD \
+            "TaskQueue:ci:${queue_id}:deadLetterZset" 1700000000000 "$dead_task_id" > /dev/null
+          docker compose exec -T redis redis-cli HSET \
+            "TaskQueue:ci:${queue_id}:taskStateHashKv" "$dead_task_id" dead > /dev/null
+          docker compose exec -T redis redis-cli HSET \
+            "TaskQueue:ci:${queue_id}:taskGenerationHashKv" "$dead_task_id" "$dead_entry_id" > /dev/null
+
+          dead_letters_json="$(curl --fail --silent --show-error --get \
+            --data-urlencode "queueId=${queue_id}" \
+            --data-urlencode 'limit=10' \
+            "http://127.0.0.1:${DASHBOARD_PORT}/waitqueue/admin/deadLetters")"
+          jq --exit-status \
+            --arg entryId "$dead_entry_id" --arg taskId "$dead_task_id" \
+            '.code == 0 and .data.total == 1 and .data.items[0].entryId == $entryId and .data.items[0].taskId == $taskId' \
+            <<< "$dead_letters_json" > /dev/null
+
+          rejected_query_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            "http://127.0.0.1:${DASHBOARD_PORT}/waitqueue/admin/deadLetters?queueId=${queue_id}&token=not-forwarded")"
+          test "$rejected_query_status" = "400"
+
+          replay_json="$(jq --compact-output --null-input \
+            --argjson queueId "$queue_id" --arg taskId "$dead_task_id" --arg entryId "$dead_entry_id" \
+            '{queueId: $queueId, taskId: $taskId, entryId: $entryId}')"
+          curl --fail --silent --show-error \
+            --request POST \
+            --header 'Content-Type: application/json' \
+            --data "$replay_json" \
+            "http://127.0.0.1:${DASHBOARD_PORT}/waitqueue/admin/deadLetters/replay" \
+            | jq --exit-status '.code == 0 and .data.isOk == true' > /dev/null
+
+          replayed_waiting="$(docker compose exec -T redis redis-cli LLEN \
+            "TaskQueue:ci:${queue_id}:waitingQueue")"
+          test "$replayed_waiting" = "2"
 
           docker compose exec -T dashboard sh -eu -c \
             '! grep --recursive --fixed-strings --quiet "$WAITQUEUE_API_TOKEN" /app/.next/static'
