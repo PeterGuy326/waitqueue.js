@@ -60,6 +60,16 @@ corepack pnpm --dir admin-dashboard start
 
 `dev` 和 `start` 都固定监听 3001，避免与后端默认的 3000 冲突。构建和启动时应提供同一个 `WAITQUEUE_API_URL`。
 
+### Docker Compose
+
+仓库根目录的 Compose 会把控制台构建为 Next.js standalone 镜像，并在构建阶段将 API 代理固定到容器网络中的 `http://api:3000`：
+
+```bash
+docker compose up --build --detach --wait
+```
+
+启动完成后访问 [http://127.0.0.1:3001](http://127.0.0.1:3001)。这里必须在构建阶段提供 `WAITQUEUE_API_URL`，因为 Next.js 会把 rewrite 写进构建产物；只在容器启动时修改该变量不足以改变已生成的代理规则。控制台镜像以非 root 用户和只读文件系统运行。
+
 ## 数据链路
 
 ```text

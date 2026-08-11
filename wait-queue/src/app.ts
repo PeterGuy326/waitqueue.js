@@ -14,9 +14,15 @@ import { daoMysql } from './conf/db'
 import { redisCli } from './conf/redis'
 import { Timer } from './lib/timer'
 import { createBackgroundContext, logger } from './common/logger'
+import { createReadinessCheck, ReadinessCheck, ReadinessResult } from './service/readiness'
 
-export function createApp(): Koa {
+export interface CreateAppOptions {
+	readinessCheck?: ReadinessCheck
+}
+
+export function createApp(options: CreateAppOptions = {}): Koa {
 	const app = new Koa()
+	const readinessCheck = options.readinessCheck ?? createReadinessCheck()
 	app.use(koaPino())
 	app.use(errorHandler)
 	app.use(bodyParser())
@@ -30,6 +36,28 @@ export function createApp(): Koa {
 
 	const router = new Router({ prefix: '/waitqueue' })
 	router.get('/health', (ctx) => response.success(ctx, { status: 'ok' }))
+	router.get('/ready', async (ctx) => {
+		ctx.set('Cache-Control', 'no-store')
+		let readiness: ReadinessResult = {
+			ready: false,
+			dependencies: { mysql: 'unavailable', redis: 'unavailable' },
+		}
+		try {
+			readiness = await readinessCheck()
+		} catch {
+			// Keep the public response intentionally free of connection and driver details.
+		}
+
+		if (!readiness.ready) {
+			ctx.status = 503
+			response.error(ctx, 'service unavailable', {
+				status: 'unavailable',
+				dependencies: readiness.dependencies,
+			})
+			return
+		}
+		response.success(ctx, { status: 'ready', dependencies: readiness.dependencies })
+	})
 	router.use('/admin', adminRoutes.routes())
 	router.use('/scheduler', schedulerRoutes.routes())
 	router.use('/queue', queueRoutes.routes())

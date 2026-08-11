@@ -1,0 +1,172 @@
+name: waitqueue
+
+services:
+  mysql:
+    image: mysql:8.4.11
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-waitqueue}
+      MYSQL_USER: ${DB_USER:-waitqueue}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-waitqueue-local-password}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-waitqueue-local-root-password}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_bin
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    stop_grace_period: 30s
+
+  redis:
+    image: redis:7.4.10-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    stop_grace_period: 15s
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrate
+    environment: &api-environment
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: ${DB_DATABASE:-waitqueue}
+      DB_USER: ${DB_USER:-waitqueue}
+      DB_PASSWORD: ${DB_PASSWORD:-waitqueue-local-password}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CHECK_TASK_DIFF_CRON: ${CHECK_TASK_DIFF_CRON:-0 * * * * *}
+      CRON_TIMEZONE: ${CRON_TIMEZONE:-Asia/Shanghai}
+      HOOK_TIMEOUT_MS: ${HOOK_TIMEOUT_MS:-10000}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    restart: unless-stopped
+    environment:
+      <<: *api-environment
+      APP_PORT: 3000
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${API_PORT:-3000}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/waitqueue/ready').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 20s
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dashboard
+      args:
+        WAITQUEUE_API_URL: http://api:3000
+    restart: unless-stopped
+    environment:
+      WAITQUEUE_API_URL: http://api:3000
+      PORT: 3001
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${DASHBOARD_PORT:-3001}:3001"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3001/').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 20s
+
+  mock-hook:
+    profiles: ["demo"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: mock-hook
+    environment:
+      MOCK_HOOK_HOST: 0.0.0.0
+      MOCK_HOOK_PORT: 3101
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${MOCK_HOOK_PORT:-3101}:3101"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3101/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  mysql-data:
+  redis-data:

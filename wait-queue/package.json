@@ -13,6 +13,7 @@
     "test": "pnpm build && node --test test/*.test.js",
     "test:watch": "npm run build && node --test --watch test/*.test.js",
     "build": "tsc",
+    "migrate": "node dist/migrate.js",
     "start": "node dist/app.js"
   },
   "keywords": [],
