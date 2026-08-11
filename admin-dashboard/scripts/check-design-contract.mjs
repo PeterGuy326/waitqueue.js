@@ -7,6 +7,16 @@ const fail = (message) => {
 const expectText = (source, value, context) => {
   if (!source.includes(value)) fail(`${context} is missing ${value}`);
 };
+const hexLuminance = (hex) => {
+  const channels = hex.match(/[\da-f]{2}/gi)?.map((value) => Number.parseInt(value, 16) / 255);
+  if (!channels || channels.length !== 3) fail(`invalid contrast color ${hex}`);
+  const linear = channels.map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+};
+const contrast = (foreground, background) => {
+  const [lighter, darker] = [hexLuminance(foreground), hexLuminance(background)].sort((a, b) => b - a);
+  return (lighter + 0.05) / (darker + 0.05);
+};
 
 const globalCss = read('src/style/global.css');
 const dashboardCss = read('src/style/dashboard.module.css');
@@ -21,7 +31,11 @@ expectText(documentSource, "matchMedia('(prefers-color-scheme: dark)')", 'pre-pa
 expectText(documentSource, "localStorage.getItem('waitqueue-theme')", 'legacy theme migration');
 expectText(documentSource, "dataset.themeReady=mode==='dark'?'false':'true'", 'dark first-paint guard');
 expectText(globalCss, "[data-theme-ready='false']", 'dark first-paint CSS guard');
-expectText(theme, 'colorTextPlaceholder: colors.foregroundSubtle', 'accessible placeholder mapping');
+expectText(theme, 'colorTextPlaceholder: supportingText', 'accessible placeholder mapping');
+expectText(theme, 'cssVar: { key: `waitqueue-${mode}` }', 'isolated light and dark Ant variable scopes');
+expectText(theme, 'defaultColor: colors.foreground', 'readable Ant button mapping');
+expectText(theme, 'itemColor: colors.foregroundMuted', 'readable Ant navigation mapping');
+expectText(theme, 'lastItemColor: colors.foreground', 'readable Ant breadcrumb mapping');
 expectText(theme, "dataset.themeReady = 'true'", 'hydrated theme readiness');
 
 const requiredTokens = [
@@ -32,6 +46,7 @@ const requiredTokens = [
   '--ui-primary:',
   '--ui-ai:',
   '--ui-border:',
+  '--ui-control-border:',
   '--ui-font-sans:',
   '--ui-space-4:',
   '--ui-radius-lg:',
@@ -42,6 +57,22 @@ const requiredTokens = [
   '--ui-topbar-height: 60px',
 ];
 for (const token of requiredTokens) expectText(globalCss, token, 'semantic token contract');
+
+const darkBlock = globalCss.match(/:root\[data-theme='dark'\]\s*{([\s\S]*?)\n}/)?.[1];
+if (!darkBlock) fail('dark semantic token block is missing');
+const darkToken = (name) => {
+  const value = darkBlock.match(new RegExp(`${name}:\\s*(#[\\da-f]{6})`, 'i'))?.[1];
+  if (!value) fail(`dark semantic token is missing ${name}`);
+  return value;
+};
+const darkSurface = darkToken('--ui-surface-raised');
+for (const [role, minimum] of [['--ui-foreground', 7], ['--ui-foreground-muted', 4.5], ['--ui-primary', 4.5]]) {
+  const ratio = contrast(darkToken(role), darkSurface);
+  if (ratio < minimum) fail(`${role} dark contrast ${ratio.toFixed(2)} is below ${minimum}`);
+}
+if (contrast(darkToken('--ui-control-border'), darkSurface) < 3) {
+  fail('dark control boundary contrast is below 3');
+}
 
 if (/#[\da-f]{3,8}\b/i.test(dashboardCss) || /#[\da-f]{3,8}\b/i.test(page)) {
   fail('product layout must use semantic variables instead of raw palette values');

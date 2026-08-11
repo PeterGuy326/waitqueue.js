@@ -21,6 +21,7 @@ interface SemanticPalette {
   foregroundSubtle: string;
   border: string;
   borderStrong: string;
+  controlBorder: string;
   primary: string;
   primaryHover: string;
   primaryForeground: string;
@@ -43,7 +44,7 @@ const PALETTE: Record<ColorMode, SemanticPalette> = {
   light: {
     canvas: '#f5f1e8', canvasSubtle: '#eee9df', navigation: '#e6e1d7', surface: '#fbf9f4',
     surfaceRaised: '#fffdf8', surfaceInset: '#f0ece3', foreground: '#282925', foregroundMuted: '#5f615b',
-    foregroundSubtle: '#6c6e67', border: '#d9d4ca', borderStrong: '#c6c1b7', primary: '#5f735e',
+    foregroundSubtle: '#6c6e67', border: '#d9d4ca', borderStrong: '#c6c1b7', controlBorder: '#929088', primary: '#5f735e',
     primaryHover: '#50644f', primaryForeground: '#fbfdf8', primarySoft: '#e2e9df', info: '#476e84',
     infoSoft: '#e1edf2', success: '#537153', successSoft: '#e0eadf', warning: '#8b672b',
     warningSoft: '#f4e8cf', danger: '#9a4e45', dangerSoft: '#f4dfdb',
@@ -54,7 +55,7 @@ const PALETTE: Record<ColorMode, SemanticPalette> = {
   dark: {
     canvas: '#1e201d', canvasSubtle: '#242622', navigation: '#292b27', surface: '#272925',
     surfaceRaised: '#2e302c', surfaceInset: '#222420', foreground: '#efede7', foregroundMuted: '#b6b5ad',
-    foregroundSubtle: '#93948c', border: '#3f423c', borderStrong: '#555950', primary: '#a1b69d',
+    foregroundSubtle: '#93948c', border: '#3f423c', borderStrong: '#555950', controlBorder: '#737b6e', primary: '#a1b69d',
     primaryHover: '#b2c6ae', primaryForeground: '#1c251c', primarySoft: '#344035', info: '#8eb6ca',
     infoSoft: '#2c4049', success: '#9dba9a', successSoft: '#314132', warning: '#d4b069',
     warningSoft: '#493d28', danger: '#d99488', dangerSoft: '#4d302d',
@@ -72,9 +73,12 @@ const STORAGE_KEY = 'waitqueue-warm-theme';
 function themeConfig(mode: ColorMode): ThemeConfig {
   const colors = PALETTE[mode];
   const dark = mode === 'dark';
+  const supportingText = dark ? colors.foregroundMuted : colors.foregroundSubtle;
   return {
     algorithm: dark ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
-    cssVar: { key: 'waitqueue' },
+    // Keep SSR light variables and hydrated dark variables in separate scopes.
+    // A shared key lets the server's later light rule override dark component vars.
+    cssVar: { key: `waitqueue-${mode}` },
     token: {
       colorPrimary: colors.primary,
       colorPrimaryHover: colors.primaryHover,
@@ -92,8 +96,18 @@ function themeConfig(mode: ColorMode): ThemeConfig {
       colorText: colors.foreground,
       colorTextSecondary: colors.foregroundMuted,
       colorTextTertiary: colors.foregroundSubtle,
-      colorTextPlaceholder: colors.foregroundSubtle,
-      colorBorder: colors.border,
+      colorTextQuaternary: colors.foregroundSubtle,
+      colorTextPlaceholder: supportingText,
+      colorTextHeading: colors.foreground,
+      colorTextLabel: colors.foregroundMuted,
+      colorTextDescription: colors.foregroundMuted,
+      colorTextDisabled: colors.foregroundSubtle,
+      colorIcon: colors.foregroundMuted,
+      colorIconHover: colors.foreground,
+      colorBgContainerDisabled: colors.surfaceInset,
+      colorBorderDisabled: colors.border,
+      colorSplit: colors.border,
+      colorBorder: colors.controlBorder,
       colorBorderSecondary: colors.border,
       colorLink: colors.primary,
       colorLinkHover: colors.primaryHover,
@@ -119,16 +133,23 @@ function themeConfig(mode: ColorMode): ThemeConfig {
       Layout: {
         bodyBg: colors.canvas,
         headerBg: colors.canvas,
+        headerColor: colors.foreground,
         siderBg: colors.navigation,
+        lightSiderBg: colors.navigation,
       },
       Card: {
         colorBgContainer: colors.surface,
         headerBg: 'transparent',
+        extraColor: colors.foregroundMuted,
+        actionsBg: colors.surfaceInset,
         paddingLG: 20,
       },
       Menu: {
         itemBg: 'transparent',
         subMenuItemBg: 'transparent',
+        itemColor: colors.foregroundMuted,
+        itemDisabledColor: colors.foregroundSubtle,
+        groupTitleColor: colors.foregroundSubtle,
         itemSelectedBg: colors.surfaceRaised,
         itemSelectedColor: colors.primary,
         itemHoverBg: colors.surface,
@@ -137,26 +158,59 @@ function themeConfig(mode: ColorMode): ThemeConfig {
         activeBarBorderWidth: 0,
       },
       Table: {
+        colorText: colors.foreground,
         headerBg: colors.surfaceInset,
         headerColor: colors.foregroundMuted,
-        rowHoverBg: colors.primarySoft,
+        rowHoverBg: colors.surfaceRaised,
+        rowSelectedBg: colors.primarySoft,
+        rowSelectedHoverBg: colors.primarySoft,
         borderColor: colors.border,
         cellPaddingBlock: 13,
         cellPaddingInline: 14,
       },
       Button: {
         primaryColor: colors.primaryForeground,
+        defaultColor: colors.foreground,
+        defaultBg: colors.surfaceRaised,
+        defaultBorderColor: colors.controlBorder,
+        defaultHoverBg: colors.surface,
+        defaultHoverColor: colors.primaryHover,
+        defaultHoverBorderColor: colors.primary,
+        defaultActiveBg: colors.surfaceInset,
+        defaultActiveColor: colors.primaryHover,
+        defaultActiveBorderColor: colors.primary,
+        textTextColor: colors.foregroundMuted,
+        textTextHoverColor: colors.foreground,
+        textTextActiveColor: colors.primary,
         primaryShadow: 'none',
         defaultShadow: 'none',
         dangerShadow: 'none',
       },
       Input: {
         colorBgContainer: colors.surfaceRaised,
+        colorText: colors.foreground,
+        colorTextPlaceholder: supportingText,
+        colorTextDisabled: colors.foregroundSubtle,
+        colorBgContainerDisabled: colors.surfaceInset,
+        hoverBg: colors.surfaceRaised,
+        activeBg: colors.surfaceRaised,
+        hoverBorderColor: colors.primary,
+        activeBorderColor: colors.primary,
         activeShadow: `0 0 0 3px ${dark ? 'rgba(172,194,168,.18)' : 'rgba(113,134,111,.18)'}`,
       },
       Select: {
         colorBgContainer: colors.surfaceRaised,
+        colorText: colors.foreground,
+        colorTextPlaceholder: supportingText,
+        colorTextDisabled: colors.foregroundSubtle,
         optionSelectedBg: colors.primarySoft,
+      },
+      Breadcrumb: {
+        itemColor: colors.foregroundMuted,
+        linkColor: colors.foregroundMuted,
+        linkHoverColor: colors.primary,
+        lastItemColor: colors.foreground,
+        separatorColor: colors.foregroundSubtle,
       },
       Modal: {
         contentBg: colors.surfaceRaised,
