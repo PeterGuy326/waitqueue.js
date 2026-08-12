@@ -1109,12 +1109,17 @@
     display: none;
   }
 
-  .alert :global(.ant-alert) {
-    align-items: flex-start;
+  .alert:global(.ant-alert) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
   }
 
   .alert :global(.ant-alert-action) {
+    grid-column: 2;
+    justify-self: start;
     margin-inline-start: 0;
+    margin-top: 8px;
   }
 
   .desktopTable {
