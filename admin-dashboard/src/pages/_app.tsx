@@ -11,7 +11,7 @@ export default function WaitQueueApp({ Component, pageProps }: AppProps) {
     <>
       <Head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="theme-color" content="#f5f1e8" />
+        <meta name="theme-color" content="#f5f5f5" />
       </Head>
       <ControlRoomTheme>
         <Component {...pageProps} />

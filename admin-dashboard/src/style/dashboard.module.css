@@ -293,6 +293,11 @@
   font-size: 12px;
 }
 
+.blockButtonWrap {
+  display: block;
+  width: 100%;
+}
+
 .mainLayout {
   min-width: 0;
   min-height: 100vh;
@@ -1093,10 +1098,28 @@
   }
 
   .topbarActions :global(.ant-tag) {
-    width: 28px;
+    width: auto;
     justify-content: center;
-    padding-inline: 0;
-    font-size: 0;
+    padding-inline: 7px;
+    font-size: 11px;
+  }
+
+  .topbarActions :global(.ant-tag .anticon),
+  .topbarActions :global(.ant-tag svg) {
+    display: none;
+  }
+
+  .alert:global(.ant-alert) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .alert :global(.ant-alert-action) {
+    grid-column: 2;
+    justify-self: start;
+    margin-inline-start: 0;
+    margin-top: 8px;
   }
 
   .desktopTable {

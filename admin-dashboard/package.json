@@ -10,9 +10,11 @@
   "scripts": {
     "dev": "next dev --webpack -p 3001",
     "build": "next build --webpack",
+    "build:pages": "WAITQUEUE_PAGES_BUILD=true NEXT_PUBLIC_WAITQUEUE_DEMO=true next build --webpack",
     "start": "next start -p 3001",
     "typecheck": "next typegen && tsc --noEmit",
-    "check:design": "node scripts/check-design-contract.mjs"
+    "check:design": "node scripts/check-design-contract.mjs",
+    "check:pages": "node scripts/check-pages-export.mjs"
   },
   "dependencies": {
     "@ant-design/cssinjs": "2.1.2",

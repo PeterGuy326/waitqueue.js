@@ -35,7 +35,7 @@ export default class WaitQueueDocument extends Document {
           <script
             id="waitqueue-theme-bootstrap"
             dangerouslySetInnerHTML={{
-              __html: `(function(){try{var saved=localStorage.getItem('waitqueue-warm-theme')||localStorage.getItem('waitqueue-theme');var mode=saved==='dark'||saved==='light'?saved:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.theme=mode;document.documentElement.dataset.themeReady=mode==='dark'?'false':'true';document.documentElement.style.colorScheme=mode;}catch(error){}})();`,
+              __html: `(function(){try{var saved=localStorage.getItem('waitqueue-color-mode')||localStorage.getItem('waitqueue-warm-theme')||localStorage.getItem('waitqueue-theme');var mode=saved==='dark'||saved==='light'?saved:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.theme=mode;document.documentElement.dataset.themeReady=mode==='dark'?'false':'true';document.documentElement.style.colorScheme=mode;}catch(error){}})();`,
             }}
           />
         </Head>

@@ -1,10 +1,10 @@
 # WaitQueue 队列运行中心
 
-waitqueue.js 的轻量实时运维控制台。它直接读取后端队列配置、Redis 运行快照和当前进程计数，不使用 mock 数据，也不展示当前系统无法证明的历史趋势。
+waitqueue.js 的轻量运维控制台。自托管模式直接读取后端队列配置、Redis 运行快照和当前进程计数，不伪造历史趋势；[GitHub Pages 在线演示](https://peterguy326.github.io/waitqueue.js/) 是唯一的静态访客模式，使用仓库内置的固定脱敏快照且不发起后端请求。
 
-界面遵循 [fullstack-ai-infra/design-system@9d048faa](https://github.com/fullstack-ai-infra/design-system/tree/9d048faaabe0429a6a8720bfbb31418544237b6b) 的 **Warm Agent Workspace** 视觉契约：暖象牙画布、stone 导航、paper 表面、charcoal 文字和 sage 主操作。布局采用 72px 模块栏、256px 队列上下文栏和 60px 顶栏；模块与队列导航使用 Ant Design `Menu`，指标和响应式栅格使用 `Row / Col / Card / Statistic`，结构化数据使用 `Table / Descriptions`，表单、抽屉、弹窗及反馈也统一由 Ant Design 6 提供。
+界面采用 Ant Design 6 的中性企业管理台主题：浅色以白色表面与灰色画布为主，深色使用中性黑灰层级；蓝色主要用于主操作、链接、选中态、焦点反馈、产品识别和信息强调，绿色只表达成功状态。布局与交互参考 [fullstack-ai-infra/design-system@9d048faa](https://github.com/fullstack-ai-infra/design-system/tree/9d048faaabe0429a6a8720bfbb31418544237b6b) 的结构约束，包括 72px 模块栏、256px 队列上下文栏、60px 顶栏、Inter/Lucide、紧凑密度、响应式触控目标与无障碍行为；本项目不采用该版本的暖色与 sage palette。
 
-设计系统当前尚未发布稳定 npm 版本，且其 React 18 peer contract 与本项目 React 19 不兼容，因此这里使用轻量 semantic adapter 将上游 token 映射到 Ant Design `ConfigProvider`，不引入重复的 Radix、Tailwind 或状态管理运行时。待设计系统正式支持 React 19 后，可直接切换到包依赖。
+设计系统当前尚未发布稳定 npm 版本，且其 React 18 peer contract 与本项目 React 19 不兼容，因此这里使用轻量 semantic adapter 将 WaitQueue 的中性产品 token 映射到 Ant Design `ConfigProvider`，不引入重复的 Radix、Tailwind 或状态管理运行时。未来升级到正式包时仍需保留产品级中性主题覆盖。
 
 ## 页面怎么用
 
@@ -18,6 +18,18 @@ waitqueue.js 的轻量实时运维控制台。它直接读取后端队列配置�
 页面每 10 秒自动刷新，浏览器切到后台时暂停；手动刷新会同时更新队列快照和健康状态。顶栏只保留服务状态、更新时间和刷新等全局工具；“提交任务”只在明确选中队列后的详情页出现，避免误投。桌面端使用模块栏、固定队列目录和表格，窄屏隐藏目录并通过抽屉选择队列，表格自动切换为卡片；浅色/深色主题共用同一套语义 token。
 
 当前没有任务历史存储，因此页面不会展示吞吐趋势、成功率、平均耗时或任务明细。
+
+## 在线参观（只读）
+
+访问 [https://peterguy326.github.io/waitqueue.js/](https://peterguy326.github.io/waitqueue.js/) 可直接查看控制台。静态演示保留搜索、模块导航、队列切换、死信查看和浅色/深色主题，但不会连接真实 API；注册或更新队列、提交任务、刷新运行态和死信重放均不可用。演示数据只包含合成 ID 与 `example.invalid` 回调地址，不包含真实任务、租户、token 或业务 URL。演示时间统一按 Asia/Shanghai 显示，保证构建产物与浏览器 hydration 一致。
+
+Pages 构建与实时控制台共用一套组件和 Ant Design token：
+
+```bash
+corepack pnpm --dir admin-dashboard build:pages
+```
+
+该命令输出 `admin-dashboard/out/`；普通 `build` 仍生成带服务端代理的 standalone 产物。任何 `WAITQUEUE_API_TOKEN` 都不会进入 Pages 构建。
 
 ## 最快启动（推荐）
 
@@ -112,8 +124,8 @@ admin-dashboard/
 ├── src/pages/_document.tsx        # Ant Design 服务端样式提取
 ├── src/pages/index.tsx            # 数据读取、交互与四个运行页面
 ├── src/pages/api/waitqueue/       # 运行时白名单代理与 token 注入
-├── src/style/global.css           # design-system 语义适配与基础样式
-├── src/style/dashboard.module.css # Warm Queue Console 布局与响应式样式
+├── src/style/global.css           # 中性产品 token 与基础样式
+├── src/style/dashboard.module.css # WaitQueue Console 布局与响应式样式
 ├── src/theme/                      # 语义 token 到 Ant Design 的映射
 ├── next.config.js                 # API 同源代理
 └── .env.example                   # 后端地址示例

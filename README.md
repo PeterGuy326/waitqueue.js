@@ -1,6 +1,11 @@
 # waitqueue.js
 
 [![CI](https://github.com/PeterGuy326/waitqueue.js/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/PeterGuy326/waitqueue.js/actions/workflows/ci.yml)
+[![Pages](https://github.com/PeterGuy326/waitqueue.js/actions/workflows/pages.yml/badge.svg?branch=master)](https://github.com/PeterGuy326/waitqueue.js/actions/workflows/pages.yml)
+
+[在线参观控制台（只读快照）](https://peterguy326.github.io/waitqueue.js/) · [一条命令启动](#一条命令启动)
+
+> 在线演示使用仓库内置的脱敏快照，不连接 WaitQueue 服务；注册或更新队列、提交任务和 DLQ 重放仅在本地或自托管部署中可用。
 
 一个轻量的 HTTP 回调任务队列与并发调度器。业务系统只提交 `taskId`；WaitQueue 负责排队、并发占位和周期检查，真正的任务仍由业务回调服务执行。
 
@@ -14,7 +19,7 @@
 - Redis FIFO list 保存等待任务，hash/ZSET 保存 claim、退避与死信运行态；
 - Lua 脚本原子完成领取、租约恢复、失败转移和重放，不突破队列并发上限；
 - HTTP 回调驱动 `run`、`check`、`expire` 三类业务动作；
-- Web 控制台展示真实 waiting/running/retrying/DLQ、等待年龄与回调/领取计数，并支持注册队列和提交任务；
+- 自托管 Web 控制台展示真实 waiting/running/retrying/DLQ、等待年龄与回调/领取计数，并支持注册队列和提交任务；
 - 核心服务无任务载荷、图表、消息总线等额外依赖，保持小而明确。
 
 适合构建、导出、媒体处理、批量通知或第三方限流调用。不适合需要任务历史、优先级、复杂工作流或跨节点调度选主的系统。
@@ -644,7 +649,7 @@ curl -X POST http://127.0.0.1:3000/waitqueue/admin/deadLetters/replay \
 控制台位于 `admin-dashboard/`，不是 mock 模板，也不是后端启动依赖。它提供：
 
 - 10 秒自动刷新，页面不可见时暂停轮询；
-- 基于 Ant Design 6、对齐 fullstack-ai-infra Warm Agent Workspace 的浅/深主题与移动端布局；
+- 基于 Ant Design 6 的中性白色/暗黑主题，并参考 fullstack-ai-infra 的布局、密度、字体、图标与无障碍约束；
 - 真实 waiting、running、retrying、DLQ、最老等待与容量利用率；
 - 当前进程 callback、claim、recovery 计数及起始时间；
 - 72px 模块栏、256px 队列上下文目录、60px 顶栏与独立队列详情页；

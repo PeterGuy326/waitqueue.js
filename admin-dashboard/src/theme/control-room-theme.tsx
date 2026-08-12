@@ -38,36 +38,38 @@ interface SemanticPalette {
   shadowStrong: string;
 }
 
-/* Pinned semantic mapping: fullstack-ai-infra/design-system@9d048faa. */
+/* WaitQueue neutral palette. Shell geometry and interaction density reference
+ * fullstack-ai-infra/design-system@9d048faa; color follows Ant Design 6. */
 const PALETTE: Record<ColorMode, SemanticPalette> = {
   light: {
-    canvas: '#f5f1e8', canvasSubtle: '#eee9df', navigation: '#e6e1d7', surface: '#fbf9f4',
-    surfaceRaised: '#fffdf8', surfaceInset: '#f0ece3', foreground: '#282925', foregroundMuted: '#5f615b',
-    foregroundSubtle: '#6c6e67', border: '#d9d4ca', controlBorder: '#929088', primary: '#5f735e',
-    primaryHover: '#50644f', primaryForeground: '#fbfdf8', primarySoft: '#e2e9df', info: '#476e84',
-    infoSoft: '#edf6fa', success: '#537153', successSoft: '#edf3eb', warning: '#8b672b',
-    warningSoft: '#fff7e6', danger: '#9a4e45', dangerSoft: '#fff1f0',
-    overlay: 'rgba(40, 41, 37, 0.42)',
-    shadow: '0 10px 30px rgba(40, 41, 37, 0.09), 0 2px 8px rgba(40, 41, 37, 0.05)',
-    shadowStrong: '0 24px 64px rgba(40, 41, 37, 0.16), 0 4px 12px rgba(40, 41, 37, 0.07)',
+    canvas: '#f5f5f5', canvasSubtle: '#fafafa', navigation: '#ffffff', surface: '#ffffff',
+    surfaceRaised: '#ffffff', surfaceInset: '#f5f5f5', foreground: '#1f1f1f', foregroundMuted: '#595959',
+    foregroundSubtle: '#737373', border: '#f0f0f0', controlBorder: '#8c8c8c', primary: '#0958d9',
+    primaryHover: '#003eb3', primaryForeground: '#ffffff', primarySoft: '#e6f4ff', info: '#0958d9',
+    infoSoft: '#e6f4ff', success: '#237804', successSoft: '#f6ffed', warning: '#9a5b00',
+    warningSoft: '#fffbe6', danger: '#cf1322', dangerSoft: '#fff1f0',
+    overlay: 'rgba(0, 0, 0, 0.45)',
+    shadow: '0 1px 2px rgba(0, 0, 0, 0.03), 0 4px 12px rgba(0, 0, 0, 0.05)',
+    shadowStrong: '0 12px 40px rgba(0, 0, 0, 0.18), 0 3px 10px rgba(0, 0, 0, 0.08)',
   },
   dark: {
-    canvas: '#1e201d', canvasSubtle: '#242622', navigation: '#292b27', surface: '#272925',
-    surfaceRaised: '#2e302c', surfaceInset: '#222420', foreground: '#efede7', foregroundMuted: '#b6b5ad',
-    foregroundSubtle: '#93948c', border: '#3f423c', controlBorder: '#737b6e', primary: '#a1b69d',
-    primaryHover: '#b2c6ae', primaryForeground: '#1c251c', primarySoft: '#344035', info: '#8eb6ca',
-    infoSoft: '#2c4049', success: '#9dba9a', successSoft: '#314132', warning: '#d4b069',
-    warningSoft: '#493d28', danger: '#d99488', dangerSoft: '#4d302d',
+    canvas: '#141414', canvasSubtle: '#1f1f1f', navigation: '#1f1f1f', surface: '#1f1f1f',
+    surfaceRaised: '#262626', surfaceInset: '#181818', foreground: '#f5f5f5', foregroundMuted: '#bfbfbf',
+    foregroundSubtle: '#a6a6a6', border: '#303030', controlBorder: '#737373', primary: '#69b1ff',
+    primaryHover: '#91caff', primaryForeground: '#111a2c', primarySoft: '#111d2c', info: '#69b1ff',
+    infoSoft: '#111d2c', success: '#95de64', successSoft: '#162312', warning: '#ffd666',
+    warningSoft: '#2b2111', danger: '#ff7875', dangerSoft: '#2a1215',
     overlay: 'rgba(0, 0, 0, 0.62)',
-    shadow: '0 10px 30px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.2)',
-    shadowStrong: '0 24px 64px rgba(0, 0, 0, 0.38), 0 4px 12px rgba(0, 0, 0, 0.24)',
+    shadow: '0 1px 2px rgba(0, 0, 0, 0.28), 0 6px 18px rgba(0, 0, 0, 0.24)',
+    shadowStrong: '0 16px 48px rgba(0, 0, 0, 0.48), 0 4px 12px rgba(0, 0, 0, 0.30)',
   },
 };
 
 const ColorModeContext = createContext<ColorModeContextValue | null>(null);
 const FONT_SANS = 'Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 const FONT_MONO = '"SFMono-Regular", Consolas, "Liberation Mono", monospace';
-const STORAGE_KEY = 'waitqueue-warm-theme';
+const STORAGE_KEY = 'waitqueue-color-mode';
+const LEGACY_STORAGE_KEYS = ['waitqueue-warm-theme', 'waitqueue-theme'];
 
 function themeConfig(mode: ColorMode): ThemeConfig {
   const colors = PALETTE[mode];
@@ -81,6 +83,7 @@ function themeConfig(mode: ColorMode): ThemeConfig {
     token: {
       colorPrimary: colors.primary,
       colorPrimaryHover: colors.primaryHover,
+      colorPrimaryActive: colors.primary,
       colorInfo: colors.info,
       colorInfoBg: colors.infoSoft,
       colorSuccess: colors.success,
@@ -114,6 +117,7 @@ function themeConfig(mode: ColorMode): ThemeConfig {
       colorBorderSecondary: colors.border,
       colorLink: colors.primary,
       colorLinkHover: colors.primaryHover,
+      colorLinkActive: colors.primary,
       borderRadius: 10,
       borderRadiusLG: 14,
       borderRadiusSM: 6,
@@ -156,18 +160,18 @@ function themeConfig(mode: ColorMode): ThemeConfig {
         itemColor: colors.foregroundMuted,
         itemDisabledColor: colors.foregroundSubtle,
         groupTitleColor: colors.foregroundSubtle,
-        itemSelectedBg: colors.surfaceRaised,
+        itemSelectedBg: colors.primarySoft,
         itemSelectedColor: colors.primary,
-        itemHoverBg: colors.surface,
+        itemHoverBg: colors.surfaceInset,
         itemHoverColor: colors.foreground,
         itemBorderRadius: 10,
         activeBarBorderWidth: 0,
         darkItemBg: 'transparent',
         darkSubMenuItemBg: 'transparent',
         darkItemColor: colors.foregroundMuted,
-        darkItemSelectedBg: colors.surfaceRaised,
+        darkItemSelectedBg: colors.primarySoft,
         darkItemSelectedColor: colors.primary,
-        darkItemHoverBg: colors.surface,
+        darkItemHoverBg: colors.surfaceInset,
         darkItemHoverColor: colors.foreground,
         darkGroupTitleColor: colors.foregroundSubtle,
         darkItemDisabledColor: colors.foregroundSubtle,
@@ -176,7 +180,7 @@ function themeConfig(mode: ColorMode): ThemeConfig {
         colorText: colors.foreground,
         headerBg: colors.surfaceInset,
         headerColor: colors.foregroundMuted,
-        rowHoverBg: colors.surfaceRaised,
+        rowHoverBg: colors.surfaceInset,
         borderColor: colors.border,
         cellPaddingBlockSM: 10,
         cellPaddingInlineSM: 12,
@@ -209,7 +213,7 @@ function themeConfig(mode: ColorMode): ThemeConfig {
         activeBg: colors.surfaceRaised,
         hoverBorderColor: colors.primary,
         activeBorderColor: colors.primary,
-        activeShadow: `0 0 0 3px ${dark ? 'rgba(172,194,168,.18)' : 'rgba(113,134,111,.18)'}`,
+        activeShadow: `0 0 0 3px ${dark ? 'rgba(105,177,255,.2)' : 'rgba(22,119,255,.15)'}`,
       },
       Select: {
         colorBgContainer: colors.surfaceRaised,
@@ -255,7 +259,8 @@ export function ControlRoomTheme({ children }: { children: ReactNode }) {
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem('waitqueue-theme');
+    const saved = window.localStorage.getItem(STORAGE_KEY)
+      ?? LEGACY_STORAGE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
     const preferred: ColorMode = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     const initialMode: ColorMode = saved === 'dark' || saved === 'light' ? saved : preferred;
     setMode(initialMode);

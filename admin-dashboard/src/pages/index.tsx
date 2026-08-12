@@ -57,6 +57,7 @@ import {
 import type { NextPage } from 'next';
 import Head from 'next/head';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { DEMO_OVERVIEW, DEMO_SNAPSHOT_AT, demoDeadLetters } from '../data/demo-snapshot';
 import styles from '../style/dashboard.module.css';
 import { useColorMode } from '../theme/control-room-theme';
 
@@ -65,6 +66,8 @@ const { Paragraph, Text, Title } = Typography;
 const REQUEST_TIMEOUT_MS = 10_000;
 const REFRESH_INTERVAL_MS = 10_000;
 const DEAD_LETTER_PAGE_SIZE = 20;
+const DEMO_MODE = process.env.NEXT_PUBLIC_WAITQUEUE_DEMO === 'true';
+const REPOSITORY_URL = 'https://github.com/PeterGuy326/waitqueue.js';
 
 type ViewKey = 'overview' | 'queues' | 'deadLetters' | 'diagnostics';
 type ServiceState = 'SYNCING' | 'ONLINE' | 'DEGRADED' | 'STALE' | 'OFFLINE';
@@ -178,7 +181,7 @@ const DEFAULT_QUEUE_VALUES: QueueFormValues = {
 const VIEW_COPY: Record<ViewKey, { title: string; description: string }> = {
   overview: { title: '运行总览', description: '队列积压、容量与恢复状态' },
   queues: { title: '队列详情', description: '运行快照与调度配置' },
-  deadLetters: { title: '死信处理', description: '审阅并安全重放失败任务' },
+  deadLetters: { title: '死信处理', description: DEMO_MODE ? '审阅失败任务与重放机制' : '审阅并安全重放失败任务' },
   diagnostics: { title: '服务诊断', description: '探针与指标契约' },
 };
 
@@ -284,6 +287,7 @@ function formatTimestamp(value?: string | null): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
   return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -442,6 +446,7 @@ function SidebarCatalog({
   onQuery,
   onSelect,
   onCreate,
+  readonly = false,
 }: {
   overview: QueueOverview | null;
   queues: QueueOverviewItem[];
@@ -450,6 +455,7 @@ function SidebarCatalog({
   onQuery: (value: string) => void;
   onSelect: (queueId: number) => void;
   onCreate: () => void;
+  readonly?: boolean;
 }) {
   const queueItems: MenuProps['items'] = queues.map((queue) => {
     const state = queueState(queue);
@@ -527,8 +533,10 @@ function SidebarCatalog({
       </nav>
 
       <div className={styles.catalogFooter}>
-        <Button type="primary" icon={<Plus size={16} />} block onClick={onCreate}>注册队列</Button>
-        <Text type="secondary"><RefreshCw size={12} /> 每 10 秒自动刷新</Text>
+        <Tooltip title={readonly ? '只读演示中不可注册队列' : undefined}>
+          <span className={styles.blockButtonWrap}><Button type="primary" icon={<Plus size={16} />} block disabled={readonly} onClick={onCreate}>注册队列</Button></span>
+        </Tooltip>
+        <Text type="secondary">{readonly ? <><ShieldCheck size={12} /> 内置演示快照 · 只读</> : <><RefreshCw size={12} /> 每 10 秒自动刷新</>}</Text>
       </div>
     </div>
   );
@@ -537,13 +545,15 @@ function SidebarCatalog({
 const Dashboard: NextPage = () => {
   const { message, modal } = AntApp.useApp();
   const { mode, toggleMode } = useColorMode();
-  const [overview, setOverview] = useState<QueueOverview | null>(null);
-  const [health, setHealth] = useState<HealthState>({ live: null, ready: null, dependencies: undefined });
-  const [loading, setLoading] = useState(true);
+  const [overview, setOverview] = useState<QueueOverview | null>(DEMO_MODE ? DEMO_OVERVIEW : null);
+  const [health, setHealth] = useState<HealthState>(DEMO_MODE
+    ? { live: true, ready: true, dependencies: { mysql: 'ok', redis: 'ok' }, checkedAt: DEMO_SNAPSHOT_AT }
+    : { live: null, ready: null, dependencies: undefined });
+  const [loading, setLoading] = useState(!DEMO_MODE);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
-  const [activeQueueId, setActiveQueueId] = useState<number | null>(null);
+  const [activeQueueId, setActiveQueueId] = useState<number | null>(DEMO_MODE ? DEMO_OVERVIEW.queues[0]?.queueId ?? null : null);
   const [view, setView] = useState<ViewKey>('overview');
   const [mobileCatalogOpen, setMobileCatalogOpen] = useState(false);
   const [queueModalOpen, setQueueModalOpen] = useState(false);
@@ -565,6 +575,12 @@ const Dashboard: NextPage = () => {
     overviewRequest.current = true;
     if (manual) setRefreshing(true);
     try {
+      if (DEMO_MODE) {
+        setOverview(DEMO_OVERVIEW);
+        setActiveQueueId((current) => DEMO_OVERVIEW.queues.some((queue) => queue.queueId === current) ? current : DEMO_OVERVIEW.queues[0]?.queueId ?? null);
+        setError('');
+        return;
+      }
       const data = await getJson<QueueOverview>('/waitqueue/admin/overview');
       setOverview(data);
       setActiveQueueId((current) => data.queues.some((queue) => queue.queueId === current) ? current : data.queues[0]?.queueId ?? null);
@@ -582,6 +598,10 @@ const Dashboard: NextPage = () => {
     if (healthRequest.current) return;
     healthRequest.current = true;
     try {
+      if (DEMO_MODE) {
+        setHealth({ live: true, ready: true, dependencies: { mysql: 'ok', redis: 'ok' }, checkedAt: DEMO_SNAPSHOT_AT });
+        return;
+      }
       const [live, ready] = await Promise.allSettled([
         probeHealth('/waitqueue/health/live'),
         probeHealth('/waitqueue/health/ready'),
@@ -605,6 +625,7 @@ const Dashboard: NextPage = () => {
 
   useEffect(() => {
     void refreshAll();
+    if (DEMO_MODE) return undefined;
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') void refreshAll();
     }, REFRESH_INTERVAL_MS);
@@ -633,7 +654,7 @@ const Dashboard: NextPage = () => {
     [activeQueueId, overview]
   );
   const currentDeadLetters = deadLetterQueueId === activeQueue?.queueId ? deadLetters : null;
-  const currentServiceState = serviceState(overview, error, health, loading);
+  const currentServiceState = DEMO_MODE ? 'ONLINE' : serviceState(overview, error, health, loading);
 
   const loadDeadLetters = useCallback(async (queueId: number, page = 1) => {
     const requestId = ++deadLetterRequest.current;
@@ -641,6 +662,14 @@ const Dashboard: NextPage = () => {
     try {
       let resolvedPage = page;
       let offset = (resolvedPage - 1) * DEAD_LETTER_PAGE_SIZE;
+      if (DEMO_MODE) {
+        const data = demoDeadLetters(queueId, offset, DEAD_LETTER_PAGE_SIZE);
+        if (requestId !== deadLetterRequest.current) return;
+        setDeadLetters(data);
+        setDeadLetterQueueId(queueId);
+        setDeadLetterPage(resolvedPage);
+        return;
+      }
       let data = await getJson<DeadLetterPage>(
         `/waitqueue/admin/deadLetters?queueId=${queueId}&offset=${offset}&limit=${DEAD_LETTER_PAGE_SIZE}`
       );
@@ -701,6 +730,10 @@ const Dashboard: NextPage = () => {
   };
 
   const submitQueue = async (values: QueueFormValues) => {
+    if (DEMO_MODE) {
+      message.info('只读演示不连接后端，请在本地或自托管控制台执行此操作');
+      return;
+    }
     setSubmitting(true);
     try {
       await postJson('/waitqueue/queue/newQueue', {
@@ -720,6 +753,10 @@ const Dashboard: NextPage = () => {
   };
 
   const submitTask = async (values: TaskFormValues) => {
+    if (DEMO_MODE) {
+      message.info('只读演示不连接后端，请在本地或自托管控制台执行此操作');
+      return;
+    }
     const queue = overview?.queues.find((item) => item.queueId === values.queueId);
     if (!queue) {
       message.error('请选择一个有效队列');
@@ -743,6 +780,10 @@ const Dashboard: NextPage = () => {
   };
 
   const replayDeadLetter = (item: DeadLetterItem) => {
+    if (DEMO_MODE) {
+      message.info('只读演示不连接后端，死信重放不可用');
+      return;
+    }
     if (!activeQueue) return;
     modal.confirm({
       title: '确认重放这条死信？',
@@ -839,7 +880,7 @@ const Dashboard: NextPage = () => {
     { title: '失败原因', dataIndex: 'reason', width: 150, render: (value: DeadLetterItem['reason']) => <StatusTag tone="error">{value === 'lease_expired' ? '租约过期' : '回调失败'}</StatusTag> },
     { title: '重试次数', dataIndex: 'retryCount', width: 110, align: 'right' },
     { title: '失败时间', dataIndex: 'failedAt', width: 180, render: formatTimestamp },
-    { title: '操作', key: 'action', width: 110, fixed: 'right', render: (_, item) => <Button type="link" icon={<RotateCcw size={15} />} onClick={() => replayDeadLetter(item)}>重放</Button> },
+    { title: '操作', key: 'action', width: 110, fixed: 'right', render: (_, item) => <Button type="link" icon={<RotateCcw size={15} />} disabled={DEMO_MODE} onClick={() => replayDeadLetter(item)}>重放</Button> },
   ];
 
   const catalog = (
@@ -858,6 +899,7 @@ const Dashboard: NextPage = () => {
         setMobileCatalogOpen(false);
         openQueueModal();
       }}
+      readonly={DEMO_MODE}
     />
   );
 
@@ -865,9 +907,9 @@ const Dashboard: NextPage = () => {
     <>
       <ConsolePageHeader
         title="队列运行概览"
-        description="查看当前积压、执行容量和失败恢复状态。所有数据都来自实时运行快照。"
-        meta={<span>已注册 {overview?.summary.queueCount ?? 0} 个队列 · 每 10 秒自动同步</span>}
-        actions={<Button icon={<Plus size={16} />} onClick={() => openQueueModal()}>注册队列</Button>}
+        description={DEMO_MODE ? '展示脱敏示例快照，用于了解队列积压、容量与失败恢复流程。' : '查看当前积压、执行容量和失败恢复状态。所有数据都来自实时运行快照。'}
+        meta={<span>{DEMO_MODE ? `${overview?.summary.queueCount ?? 0} 个示例队列 · 不自动刷新` : `已注册 ${overview?.summary.queueCount ?? 0} 个队列 · 每 10 秒自动同步`}</span>}
+        actions={<Button icon={<Plus size={16} />} disabled={DEMO_MODE} onClick={() => openQueueModal()}>注册队列</Button>}
       />
 
       <Row className={styles.metricGrid} gutter={[16, 16]} role="region" aria-label="运行摘要">
@@ -916,7 +958,7 @@ const Dashboard: NextPage = () => {
         <Col xs={24} xl={18}>
           <Card
             className={styles.queueHealthCard}
-            title={<div className={styles.cardHeading}><ListTree size={18} /><span><strong>队列健康</strong><small>查看实时积压和失败状态</small></span></div>}
+            title={<div className={styles.cardHeading}><ListTree size={18} /><span><strong>队列健康</strong><small>查看队列积压和失败状态</small></span></div>}
             extra={<Tag>{overview?.summary.queueCount ?? 0} 个队列</Tag>}
           >
           {(overview?.queues.length ?? 0) > 0 ? (
@@ -943,7 +985,7 @@ const Dashboard: NextPage = () => {
             </>
           ) : (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有注册队列">
-              <Button type="primary" icon={<Plus size={16} />} onClick={() => openQueueModal()}>注册第一条队列</Button>
+              <Button type="primary" icon={<Plus size={16} />} disabled={DEMO_MODE} onClick={() => openQueueModal()}>注册第一条队列</Button>
             </Empty>
           )}
           </Card>
@@ -983,8 +1025,12 @@ const Dashboard: NextPage = () => {
         }
         actions={(
           <>
-            <Button icon={<Settings size={16} />} onClick={() => openQueueModal(activeQueue)}>编辑配置</Button>
-            <Button type="primary" icon={<Send size={16} />} onClick={() => openTaskModal(activeQueue)}>提交任务</Button>
+            <Tooltip title={DEMO_MODE ? '只读演示中不可编辑配置' : undefined}>
+              <span><Button icon={<Settings size={16} />} disabled={DEMO_MODE} onClick={() => openQueueModal(activeQueue)}>编辑配置</Button></span>
+            </Tooltip>
+            <Tooltip title={DEMO_MODE ? '只读演示中不可提交任务' : undefined}>
+              <span><Button type="primary" icon={<Send size={16} />} disabled={DEMO_MODE} onClick={() => openTaskModal(activeQueue)}>提交任务</Button></span>
+            </Tooltip>
           </>
         )}
       />
@@ -1047,7 +1093,7 @@ const Dashboard: NextPage = () => {
     </>
   ) : (
     <Card className={styles.emptySurface}>
-      <Empty description="还没有可查看的队列"><Button type="primary" onClick={() => openQueueModal()}>注册队列</Button></Empty>
+      <Empty description="还没有可查看的队列"><Button type="primary" disabled={DEMO_MODE} onClick={() => openQueueModal()}>注册队列</Button></Empty>
     </Card>
   );
 
@@ -1066,7 +1112,7 @@ const Dashboard: NextPage = () => {
               options={(overview?.queues ?? []).map((queue) => ({ value: queue.queueId, label: queue.namespace }))}
               onChange={(queueId) => setActiveQueueId(queueId)}
             />
-            <Button icon={<RefreshCw className={deadLetterLoading ? styles.spin : undefined} size={16} />} loading={false} disabled={!activeQueue || deadLetterLoading} onClick={() => activeQueue && void loadDeadLetters(activeQueue.queueId, deadLetterPage)}>刷新</Button>
+            {!DEMO_MODE && <Button icon={<RefreshCw className={deadLetterLoading ? styles.spin : undefined} size={16} />} loading={false} disabled={!activeQueue || deadLetterLoading} onClick={() => activeQueue && void loadDeadLetters(activeQueue.queueId, deadLetterPage)}>刷新</Button>}
           </>
         }
       />
@@ -1090,7 +1136,7 @@ const Dashboard: NextPage = () => {
               <Card key={item.entryId} size="small" className={styles.deadLetterCard}>
                 <div className={styles.deadLetterHeader}><code>{item.taskId}</code><StatusTag tone="error">{item.reason === 'lease_expired' ? '租约过期' : '回调失败'}</StatusTag></div>
                 <div className={styles.deadLetterMeta}><span>已重试 {item.retryCount} 次</span><span>{formatTimestamp(item.failedAt)}</span></div>
-                <Button icon={<RotateCcw size={15} />} onClick={() => replayDeadLetter(item)}>重放任务</Button>
+                <Button icon={<RotateCcw size={15} />} disabled={DEMO_MODE} onClick={() => replayDeadLetter(item)}>重放任务</Button>
               </Card>
             ))}
             {!deadLetterLoading && (currentDeadLetters?.items.length ?? 0) === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有死信" />}
@@ -1123,7 +1169,7 @@ const Dashboard: NextPage = () => {
       <>
         <ConsolePageHeader
           title="服务诊断"
-          description="健康探针只报告服务状态；Prometheus 指标由服务端鉴权端点提供。"
+          description={DEMO_MODE ? '以下为演示探针结果，不代表当前线上服务状态。' : '健康探针只报告服务状态；Prometheus 指标由服务端鉴权端点提供。'}
           meta={<span>最近检查：{formatTimestamp(health.checkedAt)}</span>}
         />
 
@@ -1174,8 +1220,8 @@ const Dashboard: NextPage = () => {
   return (
     <>
       <Head>
-        <title>WaitQueue · 队列运行中心</title>
-        <meta name="description" content="WaitQueue 队列运行、恢复与服务诊断中心" />
+        <title>{DEMO_MODE ? 'WaitQueue · 只读演示' : 'WaitQueue · 队列运行中心'}</title>
+        <meta name="description" content={DEMO_MODE ? '使用脱敏快照展示 WaitQueue 队列运行中心，不连接后端。' : 'WaitQueue 队列运行、恢复与服务诊断中心'} />
       </Head>
       <a className={styles.skipLink} href="#main-content">跳到主要内容</a>
 
@@ -1219,16 +1265,28 @@ const Dashboard: NextPage = () => {
               <Text type="secondary" className={styles.topbarDescription}>· {VIEW_COPY[view].description}</Text>
             </div>
             <div className={styles.topbarActions}>
-              <span className={styles.updated}>更新于 {formatTimestamp(overview?.generatedAt)}</span>
-              {stateTag(currentServiceState)}
-              <Tooltip title="刷新运行快照">
-                <Button type="text" icon={<RefreshCw className={refreshing ? styles.spin : undefined} size={17} />} aria-label="刷新运行快照" disabled={refreshing} onClick={() => void refreshAll(true)} />
-              </Tooltip>
+              <span className={styles.updated}>{DEMO_MODE ? '快照采样于' : '更新于'} {formatTimestamp(overview?.generatedAt)}</span>
+              {DEMO_MODE ? <StatusTag tone="processing" icon={<ShieldCheck size={13} />} label="只读演示">只读演示</StatusTag> : stateTag(currentServiceState)}
+              {!DEMO_MODE && (
+                <Tooltip title="刷新运行快照">
+                  <Button type="text" icon={<RefreshCw className={refreshing ? styles.spin : undefined} size={17} />} aria-label="刷新运行快照" disabled={refreshing} onClick={() => void refreshAll(true)} />
+                </Tooltip>
+              )}
             </div>
           </Header>
 
           <Content id="main-content" className={styles.content} tabIndex={-1} aria-busy={loading || refreshing}>
             <div className={styles.page}>
+              {DEMO_MODE && (
+                <Alert
+                  className={styles.alert}
+                  type="info"
+                  showIcon
+                  message="访客演示 · 只读快照"
+                  description="当前页面使用仓库内置的脱敏示例数据，不连接 WaitQueue 服务。注册、提交和重放操作不可用。"
+                  action={<Button type="link" href={REPOSITORY_URL} target="_blank" rel="noreferrer">查看源码</Button>}
+                />
+              )}
               {error && (
                 <Alert
                   className={styles.alert}
@@ -1270,7 +1328,7 @@ const Dashboard: NextPage = () => {
             <Form.Item name="check" label="检查 cron" rules={[{ required: true, max: 64 }]}><Input /></Form.Item>
             <Form.Item name="expire" label="回收 cron" rules={[{ required: true, max: 64 }]}><Input /></Form.Item>
           </div>
-          <div className={styles.modalActions}><Button onClick={() => setQueueModalOpen(false)}>取消</Button><Button type="primary" htmlType="submit" loading={submitting}>{editingQueueId === null ? '注册队列' : '保存配置'}</Button></div>
+          <div className={styles.modalActions}><Button onClick={() => setQueueModalOpen(false)}>取消</Button><Button type="primary" htmlType="submit" disabled={DEMO_MODE} loading={submitting}>{editingQueueId === null ? '注册队列' : '保存配置'}</Button></div>
         </Form>
       </Modal>
 
@@ -1278,7 +1336,7 @@ const Dashboard: NextPage = () => {
         <Form form={taskForm} layout="vertical" onFinish={submitTask} requiredMark="optional">
           <Form.Item name="queueId" label="目标队列" rules={[{ required: true }]}><Select options={(overview?.queues ?? []).map((queue) => ({ value: queue.queueId, label: `${queue.namespace} · Q-${queue.queueId}` }))} /></Form.Item>
           <Form.Item name="taskId" label="Task ID" rules={[{ required: true, whitespace: true, max: 256 }]} extra="同一队列内，活跃 taskId 是幂等键。"><Input autoFocus placeholder="order-20260811-001" /></Form.Item>
-          <div className={styles.modalActions}><Button onClick={() => setTaskModalOpen(false)}>取消</Button><Button type="primary" htmlType="submit" icon={<Send size={16} />} loading={submitting}>进入等待队列</Button></div>
+          <div className={styles.modalActions}><Button onClick={() => setTaskModalOpen(false)}>取消</Button><Button type="primary" htmlType="submit" icon={<Send size={16} />} disabled={DEMO_MODE} loading={submitting}>进入等待队列</Button></div>
         </Form>
       </Modal>
     </>

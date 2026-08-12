@@ -1,0 +1,93 @@
+name: Pages
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'admin-dashboard/**'
+      - '.github/workflows/pages.yml'
+      - 'README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 24.18.0
+  PNPM_VERSION: 8.15.9
+
+jobs:
+  build:
+    name: Build static demo
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: false
+
+      - name: Activate pnpm
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          corepack enable
+          corepack prepare "pnpm@${PNPM_VERSION}" --activate
+
+      - name: Configure GitHub Pages
+        id: pages
+        uses: actions/configure-pages@v6
+
+      - name: Install dashboard dependencies
+        run: corepack pnpm --dir admin-dashboard install --frozen-lockfile
+
+      - name: Validate dashboard
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          corepack pnpm --dir admin-dashboard typecheck
+          corepack pnpm --dir admin-dashboard check:design
+
+      - name: Build static demo
+        run: corepack pnpm --dir admin-dashboard build:pages
+        env:
+          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+
+      - name: Check static export contract
+        run: corepack pnpm --dir admin-dashboard check:pages
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: admin-dashboard/out
+
+  deploy:
+    name: Deploy static demo
+    needs: build
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
