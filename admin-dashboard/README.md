@@ -21,7 +21,7 @@ waitqueue.js 的轻量运维控制台。自托管模式直接读取后端队列�
 
 ## 在线参观（只读）
 
-访问 [https://peterguy326.github.io/waitqueue.js/](https://peterguy326.github.io/waitqueue.js/) 可直接查看控制台。静态演示保留搜索、模块导航、队列切换、死信分页和浅色/深色主题，但不会连接真实 API；注册或更新队列、提交任务、刷新运行态和死信重放均不可用。演示数据只包含合成 ID 与 `example.invalid` 回调地址，不包含真实任务、租户、token 或业务 URL。
+访问 [https://peterguy326.github.io/waitqueue.js/](https://peterguy326.github.io/waitqueue.js/) 可直接查看控制台。静态演示保留搜索、模块导航、队列切换、死信查看和浅色/深色主题，但不会连接真实 API；注册或更新队列、提交任务、刷新运行态和死信重放均不可用。演示数据只包含合成 ID 与 `example.invalid` 回调地址，不包含真实任务、租户、token 或业务 URL。演示时间统一按 Asia/Shanghai 显示，保证构建产物与浏览器 hydration 一致。
 
 Pages 构建与实时控制台共用一套组件和 Ant Design token：
 

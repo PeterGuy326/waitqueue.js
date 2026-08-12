@@ -26,6 +26,9 @@ jobs:
     name: Build static demo
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: read
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -67,9 +70,6 @@ jobs:
       - name: Check static export contract
         run: corepack pnpm --dir admin-dashboard check:pages
 
-      - name: Disable Jekyll processing
-        run: touch admin-dashboard/out/.nojekyll
-
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
@@ -78,6 +78,7 @@ jobs:
   deploy:
     name: Deploy static demo
     needs: build
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

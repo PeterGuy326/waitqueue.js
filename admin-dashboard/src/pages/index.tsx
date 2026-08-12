@@ -181,7 +181,7 @@ const DEFAULT_QUEUE_VALUES: QueueFormValues = {
 const VIEW_COPY: Record<ViewKey, { title: string; description: string }> = {
   overview: { title: '运行总览', description: '队列积压、容量与恢复状态' },
   queues: { title: '队列详情', description: '运行快照与调度配置' },
-  deadLetters: { title: '死信处理', description: '审阅并安全重放失败任务' },
+  deadLetters: { title: '死信处理', description: DEMO_MODE ? '审阅失败任务与重放机制' : '审阅并安全重放失败任务' },
   diagnostics: { title: '服务诊断', description: '探针与指标契约' },
 };
 
@@ -287,6 +287,7 @@ function formatTimestamp(value?: string | null): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
   return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -957,7 +958,7 @@ const Dashboard: NextPage = () => {
         <Col xs={24} xl={18}>
           <Card
             className={styles.queueHealthCard}
-            title={<div className={styles.cardHeading}><ListTree size={18} /><span><strong>队列健康</strong><small>查看实时积压和失败状态</small></span></div>}
+            title={<div className={styles.cardHeading}><ListTree size={18} /><span><strong>队列健康</strong><small>查看队列积压和失败状态</small></span></div>}
             extra={<Tag>{overview?.summary.queueCount ?? 0} 个队列</Tag>}
           >
           {(overview?.queues.length ?? 0) > 0 ? (

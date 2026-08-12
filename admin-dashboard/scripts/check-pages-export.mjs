@@ -16,6 +16,7 @@ for (const marker of [
   '访客演示 · 只读快照',
   '当前页面使用仓库内置的脱敏示例数据',
   'billing-export',
+  '08/11 19:04:43',
   '/waitqueue.js/_next/',
 ]) {
   if (!html.includes(marker)) fail(`static HTML is missing ${marker}`);
@@ -42,6 +43,7 @@ if (/WAITQUEUE_API_TOKEN|DASHBOARD_ALLOWED_HOSTS/.test(browserAssets)) fail('ser
 if (/https?:\/\/(?:mock-hook|localhost|127\.0\.0\.1)/.test(browserAssets)) fail('local service address leaked into the export');
 if (/\/waitqueue\/(?:admin|health|queue|scheduler)/.test(browserAssets)) fail('live WaitQueue request path leaked into the export');
 if (!browserAssets.includes('example.invalid')) fail('sanitized demonstration origins are missing');
+if (!pageSource.includes("timeZone: 'Asia/Shanghai'")) fail('static snapshot timestamps must use a deterministic time zone');
 
 for (const control of [
   'disabled={DEMO_MODE} onClick={() => openQueueModal()',

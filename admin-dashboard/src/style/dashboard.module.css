@@ -1098,10 +1098,23 @@
   }
 
   .topbarActions :global(.ant-tag) {
-    width: 28px;
+    width: auto;
     justify-content: center;
-    padding-inline: 0;
-    font-size: 0;
+    padding-inline: 7px;
+    font-size: 11px;
+  }
+
+  .topbarActions :global(.ant-tag .anticon),
+  .topbarActions :global(.ant-tag svg) {
+    display: none;
+  }
+
+  .alert :global(.ant-alert) {
+    align-items: flex-start;
+  }
+
+  .alert :global(.ant-alert-action) {
+    margin-inline-start: 0;
   }
 
   .desktopTable {
