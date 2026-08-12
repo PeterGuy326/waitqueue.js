@@ -25,15 +25,19 @@ const documentSource = read('src/pages/_document.tsx');
 const theme = read('src/theme/control-room-theme.tsx');
 const packageJson = JSON.parse(read('package.json'));
 
-expectText(globalCss, '9d048faaabe0429a6a8720bfbb31418544237b6b', 'semantic adapter pin');
-expectText(theme, 'fullstack-ai-infra/design-system@9d048faa', 'Ant theme pin');
+expectText(globalCss, '9d048faaabe0429a6a8720bfbb31418544237b6b', 'structural reference pin');
+expectText(theme, 'fullstack-ai-infra/design-system@9d048faa', 'Ant structural reference pin');
 expectText(documentSource, "matchMedia('(prefers-color-scheme: dark)')", 'pre-paint system theme bootstrap');
-expectText(documentSource, "localStorage.getItem('waitqueue-theme')", 'legacy theme migration');
+expectText(documentSource, "localStorage.getItem('waitqueue-color-mode')", 'neutral theme storage');
+expectText(documentSource, "localStorage.getItem('waitqueue-warm-theme')", 'warm theme migration');
+expectText(documentSource, "localStorage.getItem('waitqueue-theme')", 'original theme migration');
 expectText(documentSource, "dataset.themeReady=mode==='dark'?'false':'true'", 'dark first-paint guard');
 expectText(globalCss, "[data-theme-ready='false']", 'dark first-paint CSS guard');
 expectText(theme, 'colorTextPlaceholder: supportingText', 'accessible placeholder mapping');
 expectText(theme, 'colorTextTertiary: supportingText', 'accessible tertiary text mapping');
 expectText(theme, 'cssVar: { key: `waitqueue-${mode}` }', 'isolated light and dark Ant variable scopes');
+expectText(theme, 'colorPrimaryActive: colors.primary', 'accessible active primary mapping');
+expectText(theme, 'colorLinkActive: colors.primary', 'accessible active link mapping');
 expectText(theme, 'defaultColor: colors.foreground', 'readable Ant button mapping');
 expectText(theme, 'itemColor: colors.foregroundMuted', 'readable Ant navigation mapping');
 expectText(theme, 'lastItemColor: colors.foreground', 'readable Ant breadcrumb mapping');
@@ -45,7 +49,6 @@ const requiredTokens = [
   '--ui-surface:',
   '--ui-foreground:',
   '--ui-primary:',
-  '--ui-ai:',
   '--ui-border:',
   '--ui-control-border:',
   '--ui-font-sans:',
@@ -59,20 +62,50 @@ const requiredTokens = [
 ];
 for (const token of requiredTokens) expectText(globalCss, token, 'semantic token contract');
 
-const darkBlock = globalCss.match(/:root\[data-theme='dark'\]\s*{([\s\S]*?)\n}/)?.[1];
-if (!darkBlock) fail('dark semantic token block is missing');
-const darkToken = (name) => {
-  const value = darkBlock.match(new RegExp(`${name}:\\s*(#[\\da-f]{6})`, 'i'))?.[1];
-  if (!value) fail(`dark semantic token is missing ${name}`);
+const cssBlocks = {
+  light: globalCss.match(/:root,\s*:root\[data-theme='light'\]\s*{([\s\S]*?)\n}/)?.[1],
+  dark: globalCss.match(/:root\[data-theme='dark'\]\s*{([\s\S]*?)\n}/)?.[1],
+};
+const cssToken = (mode, name) => {
+  const block = cssBlocks[mode];
+  if (!block) fail(`${mode} semantic token block is missing`);
+  const value = block.match(new RegExp(`${name}:\\s*(#[\\da-f]{6})`, 'i'))?.[1];
+  if (!value) fail(`${mode} semantic token is missing ${name}`);
   return value;
 };
-const darkSurface = darkToken('--ui-surface-raised');
-for (const [role, minimum] of [['--ui-foreground', 7], ['--ui-foreground-muted', 4.5], ['--ui-primary', 4.5]]) {
-  const ratio = contrast(darkToken(role), darkSurface);
-  if (ratio < minimum) fail(`${role} dark contrast ${ratio.toFixed(2)} is below ${minimum}`);
-}
-if (contrast(darkToken('--ui-control-border'), darkSurface) < 3) {
-  fail('dark control boundary contrast is below 3');
+
+const expectedPalette = {
+  light: {
+    '--ui-canvas': '#f5f5f5', '--ui-navigation': '#ffffff', '--ui-surface': '#ffffff',
+    '--ui-primary': '#0958d9', '--ui-primary-hover': '#003eb3', '--ui-primary-soft': '#e6f4ff',
+  },
+  dark: {
+    '--ui-canvas': '#141414', '--ui-navigation': '#1f1f1f', '--ui-surface': '#1f1f1f',
+    '--ui-primary': '#69b1ff', '--ui-primary-hover': '#91caff', '--ui-primary-soft': '#111d2c',
+  },
+};
+for (const mode of ['light', 'dark']) {
+  for (const [role, expected] of Object.entries(expectedPalette[mode])) {
+    const actual = cssToken(mode, role).toLowerCase();
+    if (actual !== expected) fail(`${mode} ${role} must be ${expected}, received ${actual}`);
+  }
+  const surface = cssToken(mode, '--ui-surface-raised');
+  for (const [role, minimum] of [
+    ['--ui-foreground', 7],
+    ['--ui-foreground-muted', 4.5],
+    ['--ui-foreground-subtle', 4.5],
+    ['--ui-primary', 4.5],
+    ['--ui-primary-hover', 4.5],
+  ]) {
+    const ratio = contrast(cssToken(mode, role), surface);
+    if (ratio < minimum) fail(`${mode} ${role} contrast ${ratio.toFixed(2)} is below ${minimum}`);
+  }
+  if (contrast(cssToken(mode, '--ui-control-border'), surface) < 3) {
+    fail(`${mode} control boundary contrast is below 3`);
+  }
+  if (contrast(cssToken(mode, '--ui-primary-foreground'), cssToken(mode, '--ui-primary')) < 4.5) {
+    fail(`${mode} primary button contrast is below 4.5`);
+  }
 }
 
 const themeBlock = (mode) => theme.match(new RegExp(`${mode}: \\{([\\s\\S]*?)\\n  \\},`))?.[1];
@@ -87,6 +120,17 @@ for (const mode of ['light', 'dark']) {
   for (const role of ['info', 'success', 'warning', 'danger']) {
     const ratio = contrast(color(role), color(`${role}Soft`));
     if (ratio < 4.5) fail(`${mode} ${role} tag contrast ${ratio.toFixed(2)} is below 4.5`);
+  }
+}
+
+const retiredWarmPalette = [
+  '#f5f1e8', '#eee9df', '#e6e1d7', '#fbf9f4', '#fffdf8', '#f0ece3',
+  '#5f735e', '#50644f', '#e2e9df', '#1e201d', '#242622', '#292b27',
+  '#272925', '#2e302c', '#344035', '#a1b69d', '#b2c6ae',
+];
+for (const color of retiredWarmPalette) {
+  if (globalCss.toLowerCase().includes(color) || theme.toLowerCase().includes(color)) {
+    fail(`retired green/warm palette remains: ${color}`);
   }
 }
 
@@ -126,7 +170,7 @@ for (const view of ["key: 'overview'", "key: 'queues'", "key: 'deadLetters'", "k
 }
 
 if (packageJson.dependencies['@ant-design/icons']) fail('product icons must not depend directly on @ant-design/icons');
-if (packageJson.dependencies['lucide-react'] !== '0.468.0') fail('lucide-react must stay aligned with the pinned design-system commit');
-if (packageJson.dependencies['@fontsource/inter'] !== '5.3.0') fail('Inter assets must stay aligned with the pinned design-system commit');
+if (packageJson.dependencies['lucide-react'] !== '0.468.0') fail('lucide-react must stay aligned with the structural design-system reference');
+if (packageJson.dependencies['@fontsource/inter'] !== '5.3.0') fail('Inter assets must stay aligned with the structural design-system reference');
 
-console.log('Warm Agent Workspace contract verified.');
+console.log('WaitQueue neutral Ant console contract verified.');

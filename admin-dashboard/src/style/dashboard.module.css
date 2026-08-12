@@ -293,6 +293,11 @@
   font-size: 12px;
 }
 
+.blockButtonWrap {
+  display: block;
+  width: 100%;
+}
+
 .mainLayout {
   min-width: 0;
   min-height: 100vh;

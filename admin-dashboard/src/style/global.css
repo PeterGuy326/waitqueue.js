@@ -1,45 +1,40 @@
 /*
- * WaitQueue semantic adapter for fullstack-ai-infra/design-system.
- * Visual contract pinned to commit 9d048faaabe0429a6a8720bfbb31418544237b6b.
- * Ant Design consumes the same roles from control-room-theme.tsx.
+ * WaitQueue neutral Ant Design theme.
+ * Shell geometry and interaction constraints reference
+ * fullstack-ai-infra/design-system@9d048faaabe0429a6a8720bfbb31418544237b6b.
  */
 :root,
 :root[data-theme='light'] {
   color-scheme: light;
-  --ui-canvas: #f5f1e8;
-  --ui-canvas-subtle: #eee9df;
-  --ui-navigation: #e6e1d7;
-  --ui-surface: #fbf9f4;
-  --ui-surface-raised: #fffdf8;
-  --ui-surface-inset: #f0ece3;
-  --ui-foreground: #282925;
-  --ui-foreground-muted: #5f615b;
-  --ui-foreground-subtle: #6c6e67;
-  --ui-border: #d9d4ca;
-  --ui-border-strong: #c6c1b7;
-  --ui-control-border: #929088;
-  --ui-primary: #5f735e;
-  --ui-primary-hover: #50644f;
-  --ui-primary-foreground: #fbfdf8;
-  --ui-primary-soft: #e2e9df;
-  --ui-ai: #7568a8;
-  --ui-ai-strong: #695c99;
-  --ui-ai-hover: #675a99;
-  --ui-ai-foreground: #fbfaff;
-  --ui-ai-soft: #ebe7f6;
-  --ui-info: #476e84;
-  --ui-info-soft: #edf6fa;
-  --ui-success: #537153;
-  --ui-success-strong: #4c694c;
-  --ui-success-soft: #edf3eb;
-  --ui-warning: #8b672b;
-  --ui-warning-strong: #805c20;
-  --ui-warning-soft: #fff7e6;
-  --ui-danger: #9a4e45;
+  --ui-canvas: #f5f5f5;
+  --ui-canvas-subtle: #fafafa;
+  --ui-navigation: #ffffff;
+  --ui-surface: #ffffff;
+  --ui-surface-raised: #ffffff;
+  --ui-surface-inset: #f5f5f5;
+  --ui-foreground: #1f1f1f;
+  --ui-foreground-muted: #595959;
+  --ui-foreground-subtle: #737373;
+  --ui-border: #f0f0f0;
+  --ui-border-strong: #d9d9d9;
+  --ui-control-border: #8c8c8c;
+  --ui-primary: #0958d9;
+  --ui-primary-hover: #003eb3;
+  --ui-primary-foreground: #ffffff;
+  --ui-primary-soft: #e6f4ff;
+  --ui-info: #0958d9;
+  --ui-info-soft: #e6f4ff;
+  --ui-success: #237804;
+  --ui-success-strong: #135200;
+  --ui-success-soft: #f6ffed;
+  --ui-warning: #9a5b00;
+  --ui-warning-strong: #874d00;
+  --ui-warning-soft: #fffbe6;
+  --ui-danger: #cf1322;
   --ui-danger-soft: #fff1f0;
-  --ui-overlay: rgb(40 41 37 / 42%);
-  --ui-focus: #71866f;
-  --ui-selection: #dce6d9;
+  --ui-overlay: rgb(0 0 0 / 45%);
+  --ui-focus: #1677ff;
+  --ui-selection: #bae0ff;
   --ui-font-sans: Inter, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --ui-font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
   --ui-text-xs: 0.75rem;
@@ -64,9 +59,9 @@
   --ui-radius-lg: 0.875rem;
   --ui-radius-xl: 1.125rem;
   --ui-radius-full: 9999px;
-  --ui-shadow-sm: 0 1px 2px rgb(40 41 37 / 6%);
-  --ui-shadow-md: 0 10px 30px rgb(40 41 37 / 9%), 0 2px 8px rgb(40 41 37 / 5%);
-  --ui-shadow-lg: 0 24px 64px rgb(40 41 37 / 16%), 0 4px 12px rgb(40 41 37 / 7%);
+  --ui-shadow-sm: 0 1px 2px rgb(0 0 0 / 3%), 0 4px 12px rgb(0 0 0 / 5%);
+  --ui-shadow-md: 0 1px 2px rgb(0 0 0 / 3%), 0 6px 18px rgb(0 0 0 / 8%);
+  --ui-shadow-lg: 0 12px 40px rgb(0 0 0 / 18%), 0 3px 10px rgb(0 0 0 / 8%);
   --ui-duration-fast: 120ms;
   --ui-duration-normal: 180ms;
   --ui-ease: cubic-bezier(0.2, 0, 0, 1);
@@ -78,43 +73,38 @@
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --ui-canvas: #1e201d;
-  --ui-canvas-subtle: #242622;
-  --ui-navigation: #292b27;
-  --ui-surface: #272925;
-  --ui-surface-raised: #2e302c;
-  --ui-surface-inset: #222420;
-  --ui-foreground: #efede7;
-  --ui-foreground-muted: #b6b5ad;
-  --ui-foreground-subtle: #93948c;
-  --ui-border: #3f423c;
-  --ui-border-strong: #555950;
-  --ui-control-border: #737b6e;
-  --ui-primary: #a1b69d;
-  --ui-primary-hover: #b2c6ae;
-  --ui-primary-foreground: #1c251c;
-  --ui-primary-soft: #344035;
-  --ui-ai: #b9addc;
-  --ui-ai-strong: #b9addc;
-  --ui-ai-hover: #c8bde6;
-  --ui-ai-foreground: #251f36;
-  --ui-ai-soft: #3b354d;
-  --ui-info: #8eb6ca;
-  --ui-info-soft: #2c4049;
-  --ui-success: #9dba9a;
-  --ui-success-strong: #9dba9a;
-  --ui-success-soft: #314132;
-  --ui-warning: #d4b069;
-  --ui-warning-strong: #d4b069;
-  --ui-warning-soft: #493d28;
-  --ui-danger: #d99488;
-  --ui-danger-soft: #4d302d;
+  --ui-canvas: #141414;
+  --ui-canvas-subtle: #1f1f1f;
+  --ui-navigation: #1f1f1f;
+  --ui-surface: #1f1f1f;
+  --ui-surface-raised: #262626;
+  --ui-surface-inset: #181818;
+  --ui-foreground: #f5f5f5;
+  --ui-foreground-muted: #bfbfbf;
+  --ui-foreground-subtle: #a6a6a6;
+  --ui-border: #303030;
+  --ui-border-strong: #424242;
+  --ui-control-border: #737373;
+  --ui-primary: #69b1ff;
+  --ui-primary-hover: #91caff;
+  --ui-primary-foreground: #111a2c;
+  --ui-primary-soft: #111d2c;
+  --ui-info: #69b1ff;
+  --ui-info-soft: #111d2c;
+  --ui-success: #95de64;
+  --ui-success-strong: #b7eb8f;
+  --ui-success-soft: #162312;
+  --ui-warning: #ffd666;
+  --ui-warning-strong: #ffe58f;
+  --ui-warning-soft: #2b2111;
+  --ui-danger: #ff7875;
+  --ui-danger-soft: #2a1215;
   --ui-overlay: rgb(0 0 0 / 62%);
-  --ui-focus: #acc2a8;
-  --ui-selection: #3c4a3c;
-  --ui-shadow-sm: 0 1px 2px rgb(0 0 0 / 24%);
-  --ui-shadow-md: 0 10px 30px rgb(0 0 0 / 28%), 0 2px 8px rgb(0 0 0 / 20%);
-  --ui-shadow-lg: 0 24px 64px rgb(0 0 0 / 38%), 0 4px 12px rgb(0 0 0 / 24%);
+  --ui-focus: #69b1ff;
+  --ui-selection: #15325b;
+  --ui-shadow-sm: 0 1px 2px rgb(0 0 0 / 28%), 0 6px 18px rgb(0 0 0 / 24%);
+  --ui-shadow-md: 0 2px 8px rgb(0 0 0 / 32%), 0 10px 28px rgb(0 0 0 / 28%);
+  --ui-shadow-lg: 0 16px 48px rgb(0 0 0 / 48%), 0 4px 12px rgb(0 0 0 / 30%);
 }
 
 *,

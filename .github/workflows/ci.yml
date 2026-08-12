@@ -188,6 +188,15 @@ jobs:
           set -Eeuo pipefail
           corepack pnpm build
 
+      - name: Build and verify static dashboard demo
+        shell: bash
+        env:
+          PAGES_BASE_PATH: /waitqueue.js
+        run: |
+          set -Eeuo pipefail
+          corepack pnpm --dir admin-dashboard build:pages
+          corepack pnpm --dir admin-dashboard check:pages
+
   dependency-audit:
     name: Dependency audit
     runs-on: ubuntu-24.04
