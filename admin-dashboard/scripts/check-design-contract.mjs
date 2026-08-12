@@ -32,6 +32,7 @@ expectText(documentSource, "localStorage.getItem('waitqueue-theme')", 'legacy th
 expectText(documentSource, "dataset.themeReady=mode==='dark'?'false':'true'", 'dark first-paint guard');
 expectText(globalCss, "[data-theme-ready='false']", 'dark first-paint CSS guard');
 expectText(theme, 'colorTextPlaceholder: supportingText', 'accessible placeholder mapping');
+expectText(theme, 'colorTextTertiary: supportingText', 'accessible tertiary text mapping');
 expectText(theme, 'cssVar: { key: `waitqueue-${mode}` }', 'isolated light and dark Ant variable scopes');
 expectText(theme, 'defaultColor: colors.foreground', 'readable Ant button mapping');
 expectText(theme, 'itemColor: colors.foregroundMuted', 'readable Ant navigation mapping');
@@ -74,8 +75,33 @@ if (contrast(darkToken('--ui-control-border'), darkSurface) < 3) {
   fail('dark control boundary contrast is below 3');
 }
 
+const themeBlock = (mode) => theme.match(new RegExp(`${mode}: \\{([\\s\\S]*?)\\n  \\},`))?.[1];
+for (const mode of ['light', 'dark']) {
+  const block = themeBlock(mode);
+  if (!block) fail(`${mode} theme palette is missing`);
+  const color = (role) => {
+    const value = block.match(new RegExp(`${role}:\\s*'(#[\\da-f]{6})'`, 'i'))?.[1];
+    if (!value) fail(`${mode} theme palette is missing ${role}`);
+    return value;
+  };
+  for (const role of ['info', 'success', 'warning', 'danger']) {
+    const ratio = contrast(color(role), color(`${role}Soft`));
+    if (ratio < 4.5) fail(`${mode} ${role} tag contrast ${ratio.toFixed(2)} is below 4.5`);
+  }
+}
+
 if (/#[\da-f]{3,8}\b/i.test(dashboardCss) || /#[\da-f]{3,8}\b/i.test(page)) {
   fail('product layout must use semantic variables instead of raw palette values');
+}
+if (dashboardCss.includes('!important')) {
+  fail('product layout must not override Ant Design component tokens with !important');
+}
+
+const referencedStyles = new Set([...page.matchAll(/styles\.([A-Za-z][A-Za-z0-9_]*)/g)].map((match) => match[1]));
+for (const styleName of referencedStyles) {
+  if (!new RegExp(`\\.${styleName}(?=[\\s,{:.>])`).test(dashboardCss)) {
+    fail(`CSS module class referenced by the page is missing: ${styleName}`);
+  }
 }
 
 for (const legacy of ['WaitQueue Workbench', 'Runtime Pulse', 'Delivery & Recovery', '#00c98b', '#17181b']) {
@@ -86,6 +112,13 @@ expectText(page, 'data-product="waitqueue-console"', 'stable dashboard marker');
 expectText(page, 'aria-label="主模块导航"', 'primary navigation landmark');
 expectText(page, 'aria-label="队列目录"', 'queue catalog landmark');
 expectText(page, 'aria-label="运行模块"', 'rail menu name');
+expectText(page, 'className={styles.queueMenu}', 'Ant Design queue menu');
+expectText(page, '<Row className={styles.metricGrid}', 'Ant Design responsive metric grid');
+expectText(page, '<Title level={1}', 'accessible Ant Design page title');
+expectText(page, 'STATUS_TAG_STYLES', 'final semantic status tag colors');
+expectText(page, 'QUEUE_COUNT_BADGE_STYLES', 'readable queue count badge');
+expectText(page, '当前页面', 'screen-reader current page state');
+expectText(page, '当前队列', 'screen-reader current queue state');
 expectText(page, 'tabIndex={-1}', 'skip-link focus target');
 expectText(dashboardCss, 'min-height: 44px', 'mobile touch targets');
 for (const view of ["key: 'overview'", "key: 'queues'", "key: 'deadLetters'", "key: 'diagnostics'"]) {

@@ -2,12 +2,13 @@ import {
   Alert,
   App as AntApp,
   Badge,
-  Breadcrumb,
   Button,
   Card,
+  Col,
   Descriptions,
   Drawer,
   Empty,
+  Flex,
   Form,
   Input,
   InputNumber,
@@ -16,14 +17,17 @@ import {
   Modal,
   Pagination,
   Progress,
+  Row,
   Select,
   Skeleton,
-  Space,
   Statistic,
   Table,
   Tag,
   Tooltip,
+  Typography,
+  type BadgeProps,
   type MenuProps,
+  type TagProps,
   type TableColumnsType,
 } from 'antd';
 import {
@@ -57,6 +61,7 @@ import styles from '../style/dashboard.module.css';
 import { useColorMode } from '../theme/control-room-theme';
 
 const { Header, Sider, Content } = Layout;
+const { Paragraph, Text, Title } = Typography;
 const REQUEST_TIMEOUT_MS = 10_000;
 const REFRESH_INTERVAL_MS = 10_000;
 const DEAD_LETTER_PAGE_SIZE = 20;
@@ -177,6 +182,38 @@ const VIEW_COPY: Record<ViewKey, { title: string; description: string }> = {
   diagnostics: { title: '服务诊断', description: '探针与指标契约' },
 };
 
+const VIEW_MENU_ITEMS = [
+  { key: 'overview', icon: <LayoutDashboard size={19} />, label: '总览' },
+  { key: 'queues', icon: <ListTree size={19} />, label: '队列' },
+  { key: 'deadLetters', icon: <ArchiveRestore size={19} />, label: '死信' },
+  { key: 'diagnostics', icon: <ShieldCheck size={19} />, label: '诊断' },
+] satisfies Array<{ key: ViewKey; icon: ReactNode; label: string }>;
+
+const RAIL_MENU_STYLES: MenuProps['styles'] = {
+  root: { width: '100%', flex: 1, borderInlineEnd: 0 },
+  item: {
+    display: 'flex',
+    width: 'var(--ui-rail-item-width, 52px)',
+    height: 'var(--ui-rail-item-height, 56px)',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    margin: '4px 2px',
+    padding: '5px 2px',
+    lineHeight: 1,
+  },
+  itemIcon: { display: 'inline-grid', minWidth: 19, margin: 0, placeItems: 'center' },
+  itemContent: { width: '100%', margin: 0, overflow: 'visible', textAlign: 'center', textOverflow: 'clip' },
+};
+
+const QUEUE_MENU_STYLES: MenuProps['styles'] = {
+  root: { background: 'transparent', borderInlineEnd: 0 },
+  item: { height: 62, marginBlock: 2, marginInline: 0, paddingInline: 10, lineHeight: 'normal' },
+  itemIcon: { lineHeight: 1 },
+  itemContent: { minWidth: 0 },
+};
+
 async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -283,6 +320,33 @@ function queueState(queue: QueueOverviewItem): { label: string; color: 'success'
   return { label: '空闲', color: 'default', badge: 'default' };
 }
 
+type StatusTone = 'success' | 'warning' | 'error' | 'processing' | 'default';
+
+const STATUS_TAG_STYLES: Record<Exclude<StatusTone, 'default'>, TagProps['styles']> = {
+  success: { root: { color: 'var(--ui-success)', background: 'var(--ui-success-soft)' } },
+  warning: { root: { color: 'var(--ui-warning)', background: 'var(--ui-warning-soft)' } },
+  error: { root: { color: 'var(--ui-danger)', background: 'var(--ui-danger-soft)' } },
+  processing: { root: { color: 'var(--ui-info)', background: 'var(--ui-info-soft)' } },
+};
+
+const QUEUE_COUNT_BADGE_STYLES: BadgeProps['styles'] = {
+  indicator: { color: 'var(--ui-primary-foreground)', background: 'var(--ui-primary)' },
+};
+
+function StatusTag({ tone, icon, children, label }: { tone: StatusTone; icon?: ReactNode; children: ReactNode; label?: string }) {
+  return (
+    <Tag
+      color={tone}
+      icon={icon}
+      styles={tone === 'default' ? undefined : STATUS_TAG_STYLES[tone]}
+      aria-label={label}
+      title={label}
+    >
+      {children}
+    </Tag>
+  );
+}
+
 function serviceState(overview: QueueOverview | null, error: string, health: HealthState, loading: boolean): ServiceState {
   if (loading && !overview) return 'SYNCING';
   if (!overview) return 'OFFLINE';
@@ -294,7 +358,7 @@ function serviceState(overview: QueueOverview | null, error: string, health: Hea
 }
 
 function stateTag(state: ServiceState) {
-  const map: Record<ServiceState, { color: string; icon: ReactNode; text: string }> = {
+  const map: Record<ServiceState, { color: StatusTone; icon: ReactNode; text: string }> = {
     SYNCING: { color: 'processing', icon: <RefreshCw className={styles.spin} size={13} />, text: '正在同步' },
     ONLINE: { color: 'success', icon: <CheckCircle2 size={13} />, text: '服务在线' },
     DEGRADED: { color: 'warning', icon: <TriangleAlert size={13} />, text: '依赖异常' },
@@ -302,17 +366,15 @@ function stateTag(state: ServiceState) {
     OFFLINE: { color: 'error', icon: <TriangleAlert size={13} />, text: '服务离线' },
   };
   const item = map[state];
-  return <Tag color={item.color} icon={item.icon}>{item.text}</Tag>;
+  return <StatusTag tone={item.color} icon={item.icon} label={item.text}>{item.text}</StatusTag>;
 }
 
 function ConsolePageHeader({
-  eyebrow,
   title,
   description,
   meta,
   actions,
 }: {
-  eyebrow: string;
   title: ReactNode;
   description: ReactNode;
   meta?: ReactNode;
@@ -321,13 +383,54 @@ function ConsolePageHeader({
   return (
     <header className={styles.pageHeader}>
       <div className={styles.pageHeaderMain}>
-        <div className={styles.pageEyebrow}>{eyebrow}</div>
-        <h1>{title}</h1>
-        <p>{description}</p>
+        <Title level={1} className={styles.pageTitle}>{title}</Title>
+        <Paragraph type="secondary" className={styles.pageDescription}>{description}</Paragraph>
         {meta && <div className={styles.pageMeta}>{meta}</div>}
       </div>
       {actions && <div className={styles.pageActions}>{actions}</div>}
     </header>
+  );
+}
+
+function SummaryMetricCard({
+  title,
+  icon,
+  value,
+  suffix,
+  tone = 'default',
+  progress,
+  footer,
+}: {
+  title: string;
+  icon: ReactNode;
+  value: number | string;
+  suffix?: ReactNode;
+  tone?: 'default' | 'warning' | 'danger';
+  progress?: number;
+  footer?: ReactNode;
+}) {
+  const toneClass = tone === 'danger'
+    ? styles.metricDanger
+    : tone === 'warning'
+      ? styles.metricWarning
+      : '';
+  return (
+    <Card className={`${styles.metricCard} ${toneClass}`}>
+      <Statistic
+        title={(
+          <Flex align="center" justify="space-between" gap={12}>
+            <Text type="secondary">{title}</Text>
+            <span className={styles.metricIcon}>{icon}</span>
+          </Flex>
+        )}
+        value={value}
+        suffix={suffix}
+      />
+      {progress !== undefined && (
+        <Progress percent={Math.min(100, Math.max(0, progress))} showInfo={false} size="small" />
+      )}
+      {footer && <div className={styles.metricFooter}>{footer}</div>}
+    </Card>
   );
 }
 
@@ -348,6 +451,34 @@ function SidebarCatalog({
   onSelect: (queueId: number) => void;
   onCreate: () => void;
 }) {
+  const queueItems: MenuProps['items'] = queues.map((queue) => {
+    const state = queueState(queue);
+    const avatarClass = state.badge === 'error'
+      ? styles.queueAvatarDanger
+      : state.badge === 'warning'
+        ? styles.queueAvatarWarning
+        : state.badge === 'success'
+          ? styles.queueAvatarHealthy
+          : styles.queueAvatarNeutral;
+    return {
+      key: String(queue.queueId),
+      icon: <span className={`${styles.queueAvatar} ${avatarClass}`}><Server size={15} /></span>,
+      label: (
+        <span className={styles.queueMenuLabel}>
+          <span className={styles.queueNavCopy}>
+            <strong title={queue.namespace}>{queue.namespace}</strong>
+            <small>Q-{String(queue.queueId).padStart(3, '0')} · {state.label}</small>
+          </span>
+          <span className={styles.queueNavCount} aria-label={`${queue.waiting} 个等待任务`}>
+            <strong>{queue.waiting}</strong>
+            <small>等待</small>
+          </span>
+          {queue.queueId === activeQueueId && <span className={styles.srOnly}>当前队列</span>}
+        </span>
+      ),
+    };
+  });
+
   return (
     <div className={styles.catalog}>
       <div className={styles.catalogHeader}>
@@ -356,7 +487,7 @@ function SidebarCatalog({
           <strong>WaitQueue</strong>
           <small>队列运行中心</small>
         </span>
-        <Badge count={overview?.summary.queueCount ?? 0} showZero color="var(--ui-primary)" />
+        <Badge count={overview?.summary.queueCount ?? 0} showZero styles={QUEUE_COUNT_BADGE_STYLES} />
       </div>
 
       <div className={styles.catalogSearch}>
@@ -376,42 +507,28 @@ function SidebarCatalog({
       </div>
 
       <nav className={styles.queueNav} aria-label="已注册队列">
-        {queues.map((queue) => {
-          const selected = queue.queueId === activeQueueId;
-          const state = queueState(queue);
-          const avatarClass = state.badge === 'error'
-            ? styles.queueAvatarDanger
-            : state.badge === 'warning'
-              ? styles.queueAvatarWarning
-              : state.badge === 'success'
-                ? styles.queueAvatarHealthy
-                : styles.queueAvatarNeutral;
-          return (
-            <button
-              key={queue.queueId}
-              type="button"
-              className={selected ? styles.queueNavActive : undefined}
-              onClick={() => onSelect(queue.queueId)}
-              aria-current={selected ? 'location' : undefined}
-            >
-              <span className={`${styles.queueAvatar} ${avatarClass}`}><Server size={15} /></span>
-              <span className={styles.queueNavCopy}>
-                <strong title={queue.namespace}>{queue.namespace}</strong>
-                <small>Q-{String(queue.queueId).padStart(3, '0')} · {state.label}</small>
-              </span>
-              <span className={styles.queueNavCount}>
-                <strong>{queue.waiting}</strong>
-                <small>等待</small>
-              </span>
-            </button>
-          );
-        })}
-        {queues.length === 0 && <p className={styles.catalogEmpty}>{query ? '没有匹配的队列' : '暂无队列'}</p>}
+        {queueItems.length > 0 ? (
+          <Menu
+            className={styles.queueMenu}
+            mode="inline"
+            aria-label="选择队列"
+            styles={QUEUE_MENU_STYLES}
+            items={queueItems}
+            selectedKeys={activeQueueId === null ? [] : [String(activeQueueId)]}
+            onClick={({ key }) => onSelect(Number(key))}
+          />
+        ) : (
+          <Empty
+            className={styles.catalogEmpty}
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={query ? '没有匹配的队列' : '暂无队列'}
+          />
+        )}
       </nav>
 
       <div className={styles.catalogFooter}>
         <Button type="primary" icon={<Plus size={16} />} block onClick={onCreate}>注册队列</Button>
-        <span><RefreshCw size={12} /> 每 10 秒自动刷新</span>
+        <Text type="secondary"><RefreshCw size={12} /> 每 10 秒自动刷新</Text>
       </div>
     </div>
   );
@@ -656,12 +773,10 @@ const Dashboard: NextPage = () => {
     setMobileCatalogOpen(false);
   };
 
-  const menuItems: MenuProps['items'] = [
-    { key: 'overview', icon: <LayoutDashboard size={19} />, label: '总览' },
-    { key: 'queues', icon: <ListTree size={19} />, label: '队列' },
-    { key: 'deadLetters', icon: <ArchiveRestore size={19} />, label: '死信' },
-    { key: 'diagnostics', icon: <ShieldCheck size={19} />, label: '诊断' },
-  ];
+  const menuItems: MenuProps['items'] = VIEW_MENU_ITEMS.map((item) => ({
+    ...item,
+    label: <span>{item.label}{view === item.key && <span className={styles.srOnly}>，当前页面</span>}</span>,
+  }));
 
   const queueColumns: TableColumnsType<QueueOverviewItem> = [
     {
@@ -670,7 +785,7 @@ const Dashboard: NextPage = () => {
       width: 230,
       render: (_, queue) => (
         <div className={styles.queueIdentity}>
-          <button type="button" onClick={() => openQueueView(queue.queueId)}>{queue.namespace}</button>
+          <Button type="link" onClick={() => openQueueView(queue.queueId)}>{queue.namespace}</Button>
           <span><code>Q-{String(queue.queueId).padStart(3, '0')}</code> · {displayHook(queue.hookUrl)}</span>
         </div>
       ),
@@ -681,7 +796,7 @@ const Dashboard: NextPage = () => {
       width: 110,
       render: (_, queue) => {
         const state = queueState(queue);
-        return <Tag color={state.color}>{state.label}</Tag>;
+        return <StatusTag tone={state.color}>{state.label}</StatusTag>;
       },
     },
     {
@@ -717,28 +832,21 @@ const Dashboard: NextPage = () => {
         </span>
       ),
     },
-    {
-      title: '',
-      key: 'actions',
-      width: 80,
-      align: 'right',
-      render: (_, queue) => <Button type="link" onClick={() => openQueueView(queue.queueId)}>查看</Button>,
-    },
   ];
 
   const deadLetterColumns: TableColumnsType<DeadLetterItem> = [
     { title: '任务 ID', dataIndex: 'taskId', ellipsis: true, render: (value: string) => <code>{value}</code> },
-    { title: '失败原因', dataIndex: 'reason', width: 150, render: (value: DeadLetterItem['reason']) => <Tag color="error">{value === 'lease_expired' ? '租约过期' : '回调失败'}</Tag> },
+    { title: '失败原因', dataIndex: 'reason', width: 150, render: (value: DeadLetterItem['reason']) => <StatusTag tone="error">{value === 'lease_expired' ? '租约过期' : '回调失败'}</StatusTag> },
     { title: '重试次数', dataIndex: 'retryCount', width: 110, align: 'right' },
     { title: '失败时间', dataIndex: 'failedAt', width: 180, render: formatTimestamp },
-    { title: '操作', key: 'action', width: 110, fixed: 'right', render: (_, item) => <Button icon={<RotateCcw size={15} />} onClick={() => replayDeadLetter(item)}>重放</Button> },
+    { title: '操作', key: 'action', width: 110, fixed: 'right', render: (_, item) => <Button type="link" icon={<RotateCcw size={15} />} onClick={() => replayDeadLetter(item)}>重放</Button> },
   ];
 
   const catalog = (
     <SidebarCatalog
       overview={overview}
       queues={queues}
-      activeQueueId={activeQueue?.queueId ?? null}
+      activeQueueId={view === 'queues' || view === 'deadLetters' ? activeQueue?.queueId ?? null : null}
       query={query}
       onQuery={setQuery}
       onSelect={(queueId) => {
@@ -756,53 +864,72 @@ const Dashboard: NextPage = () => {
   const renderOverview = () => (
     <>
       <ConsolePageHeader
-        eyebrow="WaitQueue operations"
         title="队列运行概览"
         description="查看当前积压、执行容量和失败恢复状态。所有数据都来自实时运行快照。"
         meta={<span>已注册 {overview?.summary.queueCount ?? 0} 个队列 · 每 10 秒自动同步</span>}
         actions={<Button icon={<Plus size={16} />} onClick={() => openQueueModal()}>注册队列</Button>}
       />
 
-      <section className={styles.metricGrid} aria-label="运行摘要">
-        <Card className={`${styles.metricCard} ${(overview?.summary.waiting ?? 0) > 0 ? styles.metricWarning : ''}`}>
-          <div className={styles.metricCardHeader}><span className={styles.metricIcon}><Clock3 size={18} /></span><span>等待任务</span></div>
-          <Statistic value={overview?.summary.waiting ?? '—'} suffix="个" />
-          <p>最老等待：{formatAge(overview?.summary.oldestWaitingAgeSeconds, overview?.summary.waiting)}</p>
-        </Card>
-        <Card className={styles.metricCard}>
-          <div className={styles.metricCardHeader}><span className={styles.metricIcon}><Activity size={18} /></span><span>运行容量</span></div>
-          <Statistic value={overview ? `${overview.summary.running} / ${overview.summary.capacity}` : '—'} />
-          <Progress percent={overview?.summary.utilization ?? 0} showInfo={false} size="small" />
-        </Card>
-        <Card className={`${styles.metricCard} ${(overview?.summary.retrying ?? 0) > 0 ? styles.metricWarning : ''}`}>
-          <div className={styles.metricCardHeader}><span className={styles.metricIcon}><RotateCcw size={18} /></span><span>延迟重试</span></div>
-          <Statistic value={metric(overview?.summary.retrying)} suffix="个" />
-          <p>等待下一次回队调度</p>
-        </Card>
-        <Card className={`${styles.metricCard} ${(overview?.summary.deadLetters ?? 0) > 0 ? styles.metricDanger : ''}`}>
-          <div className={styles.metricCardHeader}><span className={styles.metricIcon}><ArchiveRestore size={18} /></span><span>死信任务</span></div>
-          <Statistic value={metric(overview?.summary.deadLetters)} suffix="个" />
-          <Button type="link" onClick={() => setView('deadLetters')}>进入死信处理</Button>
-        </Card>
-      </section>
+      <Row className={styles.metricGrid} gutter={[16, 16]} role="region" aria-label="运行摘要">
+        <Col xs={24} sm={12} xl={6}>
+          <SummaryMetricCard
+            title="等待任务"
+            icon={<Clock3 size={18} />}
+            value={overview?.summary.waiting ?? '—'}
+            suffix="个"
+            tone={(overview?.summary.waiting ?? 0) > 0 ? 'warning' : 'default'}
+            footer={<>最老等待：{formatAge(overview?.summary.oldestWaitingAgeSeconds, overview?.summary.waiting)}</>}
+          />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <SummaryMetricCard
+            title="运行容量"
+            icon={<Activity size={18} />}
+            value={overview ? `${overview.summary.running} / ${overview.summary.capacity}` : '—'}
+            progress={overview?.summary.utilization ?? 0}
+            footer={<>容量利用率 {overview?.summary.utilization ?? 0}%</>}
+          />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <SummaryMetricCard
+            title="延迟重试"
+            icon={<RotateCcw size={18} />}
+            value={metric(overview?.summary.retrying)}
+            suffix="个"
+            tone={(overview?.summary.retrying ?? 0) > 0 ? 'warning' : 'default'}
+            footer="等待下一次回队调度"
+          />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <SummaryMetricCard
+            title="死信任务"
+            icon={<ArchiveRestore size={18} />}
+            value={metric(overview?.summary.deadLetters)}
+            suffix="个"
+            tone={(overview?.summary.deadLetters ?? 0) > 0 ? 'danger' : 'default'}
+            footer={<Button type="link" onClick={() => setView('deadLetters')}>进入死信处理</Button>}
+          />
+        </Col>
+      </Row>
 
-      <section className={styles.overviewGrid}>
-        <Card
-          className={styles.queueHealthCard}
-          title={<div className={styles.cardHeading}><ListTree size={18} /><span><strong>队列健康</strong><small>查看实时积压和失败状态</small></span></div>}
-          extra={<Tag>{overview?.summary.queueCount ?? 0} 个队列</Tag>}
-        >
+      <Row className={styles.overviewGrid} gutter={[16, 16]} align="stretch">
+        <Col xs={24} xl={18}>
+          <Card
+            className={styles.queueHealthCard}
+            title={<div className={styles.cardHeading}><ListTree size={18} /><span><strong>队列健康</strong><small>查看实时积压和失败状态</small></span></div>}
+            extra={<Tag>{overview?.summary.queueCount ?? 0} 个队列</Tag>}
+          >
           {(overview?.queues.length ?? 0) > 0 ? (
             <>
               <div className={styles.desktopTable}>
-                <Table rowKey="queueId" columns={queueColumns} dataSource={overview?.queues ?? []} pagination={false} size="small" scroll={{ x: 780 }} />
+                <Table rowKey="queueId" columns={queueColumns} dataSource={overview?.queues ?? []} pagination={false} size="small" scroll={{ x: 700 }} />
               </div>
               <div className={styles.mobileQueueList}>
                 {(overview?.queues ?? []).map((queue) => {
                   const state = queueState(queue);
                   return (
                     <button key={queue.queueId} type="button" className={styles.mobileQueueCard} onClick={() => openQueueView(queue.queueId)}>
-                      <span className={styles.mobileQueueHeader}><strong>{queue.namespace}</strong><Tag color={state.color}>{state.label}</Tag></span>
+                      <span className={styles.mobileQueueHeader}><strong>{queue.namespace}</strong><StatusTag tone={state.color}>{state.label}</StatusTag></span>
                       <span className={styles.mobileQueueMetrics}>
                         <span><small>等待</small><b>{queue.waiting}</b></span>
                         <span><small>运行</small><b>{queue.running}/{queue.concurrency}</b></span>
@@ -819,99 +946,104 @@ const Dashboard: NextPage = () => {
               <Button type="primary" icon={<Plus size={16} />} onClick={() => openQueueModal()}>注册第一条队列</Button>
             </Empty>
           )}
-        </Card>
+          </Card>
+        </Col>
 
-        <Card
-          className={styles.recoveryCard}
-          title={<div className={styles.cardHeading}><Waypoints size={18} /><span><strong>投递与恢复</strong><small>当前进程累计值</small></span></div>}
-        >
-          <div className={styles.counterList}>
-            <div><span>回调成功</span><strong>{metric(overview?.summary.callbackSuccesses)}</strong></div>
-            <div><span>回调失败</span><strong className={(overview?.summary.callbackFailures ?? 0) > 0 ? styles.dangerText : undefined}>{metric(overview?.summary.callbackFailures)}</strong></div>
-            <div><span>成功认领</span><strong>{metric(overview?.summary.claims)}</strong></div>
-            <div><span>租约恢复</span><strong>{metric(overview?.summary.recovered)}</strong></div>
-          </div>
-          <div className={styles.counterNote}>
-            <Clock3 size={14} />
-            <span>统计自 {formatTimestamp(overview?.metricsStartedAt)}，服务重启后重新计数。</span>
-          </div>
-        </Card>
-      </section>
+        <Col xs={24} xl={6}>
+          <Card
+            className={styles.recoveryCard}
+            title={<div className={styles.cardHeading}><Waypoints size={18} /><span><strong>投递与恢复</strong><small>当前进程累计值</small></span></div>}
+          >
+            <Row className={styles.counterList} gutter={[12, 12]}>
+              <Col span={12}><Statistic title="回调成功" value={metric(overview?.summary.callbackSuccesses)} /></Col>
+              <Col span={12}><Statistic className={(overview?.summary.callbackFailures ?? 0) > 0 ? styles.dangerStatistic : undefined} title="回调失败" value={metric(overview?.summary.callbackFailures)} /></Col>
+              <Col span={12}><Statistic title="成功认领" value={metric(overview?.summary.claims)} /></Col>
+              <Col span={12}><Statistic title="租约恢复" value={metric(overview?.summary.recovered)} /></Col>
+            </Row>
+            <div className={styles.counterNote}>
+              <Clock3 size={14} />
+              <span>统计自 {formatTimestamp(overview?.metricsStartedAt)}，服务重启后重新计数。</span>
+            </div>
+          </Card>
+        </Col>
+      </Row>
     </>
   );
 
   const renderQueueDetail = () => activeQueue ? (
     <>
       <ConsolePageHeader
-        eyebrow={`Queue Q-${String(activeQueue.queueId).padStart(3, '0')}`}
         title={activeQueue.namespace}
         description={displayHook(activeQueue.hookUrl)}
         meta={
           <>
-            <Tag color={queueState(activeQueue).color}>{queueState(activeQueue).label}</Tag>
+            <StatusTag tone={queueState(activeQueue).color}>{queueState(activeQueue).label}</StatusTag>
             <span>配置更新于 {formatTimestamp(activeQueue.updatedAt)}</span>
           </>
         }
-        actions={<Button icon={<Settings size={16} />} onClick={() => openQueueModal(activeQueue)}>编辑配置</Button>}
+        actions={(
+          <>
+            <Button icon={<Settings size={16} />} onClick={() => openQueueModal(activeQueue)}>编辑配置</Button>
+            <Button type="primary" icon={<Send size={16} />} onClick={() => openTaskModal(activeQueue)}>提交任务</Button>
+          </>
+        )}
       />
 
-      <section className={styles.metricGrid} aria-label="当前队列运行摘要">
-        <Card className={`${styles.metricCard} ${activeQueue.waiting > 0 ? styles.metricWarning : ''}`}>
-          <div className={styles.metricCardHeader}><span className={styles.metricIcon}><Clock3 size={18} /></span><span>等待任务</span></div>
-          <Statistic value={activeQueue.waiting} suffix="个" />
-          <p>最老等待：{formatAge(activeQueue.oldestWaitingAgeSeconds, activeQueue.waiting)}</p>
-        </Card>
-        <Card className={styles.metricCard}>
-          <div className={styles.metricCardHeader}><span className={styles.metricIcon}><Activity size={18} /></span><span>运行中</span></div>
-          <Statistic value={activeQueue.running} suffix={`/ ${activeQueue.concurrency}`} />
-          <p>当前可用槽位：{activeQueue.available}</p>
-        </Card>
-        <Card className={`${styles.metricCard} ${(activeQueue.retrying ?? 0) > 0 ? styles.metricWarning : ''}`}>
-          <div className={styles.metricCardHeader}><span className={styles.metricIcon}><RotateCcw size={18} /></span><span>延迟重试</span></div>
-          <Statistic value={metric(activeQueue.retrying)} suffix="个" />
-          <p>失败后按退避策略回队</p>
-        </Card>
-        <Card className={`${styles.metricCard} ${(activeQueue.deadLetters ?? 0) > 0 ? styles.metricDanger : ''}`}>
-          <div className={styles.metricCardHeader}><span className={styles.metricIcon}><ArchiveRestore size={18} /></span><span>死信任务</span></div>
-          <Statistic value={metric(activeQueue.deadLetters)} suffix="个" />
-          <Button type="link" onClick={() => setView('deadLetters')}>查看并处理</Button>
-        </Card>
-      </section>
+      <Row className={styles.metricGrid} gutter={[16, 16]} role="region" aria-label="当前队列运行摘要">
+        <Col xs={24} sm={12} xl={6}>
+          <SummaryMetricCard title="等待任务" icon={<Clock3 size={18} />} value={activeQueue.waiting} suffix="个" tone={activeQueue.waiting > 0 ? 'warning' : 'default'} footer={<>最老等待：{formatAge(activeQueue.oldestWaitingAgeSeconds, activeQueue.waiting)}</>} />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <SummaryMetricCard title="运行中" icon={<Activity size={18} />} value={activeQueue.running} suffix={`/ ${activeQueue.concurrency}`} progress={activeQueue.utilization} footer={<>当前可用槽位：{activeQueue.available}</>} />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <SummaryMetricCard title="延迟重试" icon={<RotateCcw size={18} />} value={metric(activeQueue.retrying)} suffix="个" tone={(activeQueue.retrying ?? 0) > 0 ? 'warning' : 'default'} footer="失败后按退避策略回队" />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <SummaryMetricCard title="死信任务" icon={<ArchiveRestore size={18} />} value={metric(activeQueue.deadLetters)} suffix="个" tone={(activeQueue.deadLetters ?? 0) > 0 ? 'danger' : 'default'} footer={<Button type="link" onClick={() => setView('deadLetters')}>查看并处理</Button>} />
+        </Col>
+      </Row>
 
-      <section className={styles.queueDetailGrid}>
-        <Card className={styles.detailCard} title={<div className={styles.cardHeading}><Gauge size={18} /><span><strong>运行容量</strong><small>当前并发槽位使用情况</small></span></div>}>
-          <div className={styles.capacitySummary}>
-            <span><strong>{activeQueue.utilization}%</strong><small>容量利用率</small></span>
-            <Progress percent={activeQueue.utilization} showInfo={false} />
-          </div>
-          <Descriptions
-            size="small"
-            column={1}
-            items={[
-              { key: 'running', label: '运行中', children: activeQueue.running },
-              { key: 'available', label: '可用槽位', children: activeQueue.available },
-              { key: 'capacity', label: '并发上限', children: activeQueue.concurrency },
-            ]}
-          />
-        </Card>
+      <Row className={styles.queueDetailGrid} gutter={[16, 16]}>
+        <Col xs={24} lg={12}>
+          <Card className={styles.detailCard} title={<div className={styles.cardHeading}><Gauge size={18} /><span><strong>运行容量</strong><small>当前并发槽位使用情况</small></span></div>}>
+            <div className={styles.capacitySummary}>
+              <span><strong>{activeQueue.utilization}%</strong><small>容量利用率</small></span>
+              <Progress percent={activeQueue.utilization} showInfo={false} />
+            </div>
+            <Descriptions
+              size="small"
+              column={1}
+              items={[
+                { key: 'running', label: '运行中', children: activeQueue.running },
+                { key: 'available', label: '可用槽位', children: activeQueue.available },
+                { key: 'capacity', label: '并发上限', children: activeQueue.concurrency },
+              ]}
+            />
+          </Card>
+        </Col>
 
-        <Card className={styles.detailCard} title={<div className={styles.cardHeading}><Clock3 size={18} /><span><strong>调度策略</strong><small>服务端生效中的 Cron 配置</small></span></div>}>
-          <div className={styles.scheduleList}>
-            <div><span>运行任务</span><code>{activeQueue.crontab.run}</code></div>
-            <div><span>检查任务</span><code>{activeQueue.crontab.check}</code></div>
-            <div><span>回收过期</span><code>{activeQueue.crontab.expire}</code></div>
-          </div>
-        </Card>
+        <Col xs={24} lg={12}>
+          <Card className={styles.detailCard} title={<div className={styles.cardHeading}><Clock3 size={18} /><span><strong>调度策略</strong><small>服务端生效中的 Cron 配置</small></span></div>}>
+            <div className={styles.scheduleList}>
+              <div><span>运行任务</span><code>{activeQueue.crontab.run}</code></div>
+              <div><span>检查任务</span><code>{activeQueue.crontab.check}</code></div>
+              <div><span>回收过期</span><code>{activeQueue.crontab.expire}</code></div>
+            </div>
+          </Card>
+        </Col>
 
-        <Card className={`${styles.detailCard} ${styles.lifecycleCard}`} title={<div className={styles.cardHeading}><Waypoints size={18} /><span><strong>投递生命周期</strong><small>该队列在当前进程中的累计状态变化</small></span></div>}>
-          <div className={styles.callbackGrid}>
-            <div><span>回调成功</span><strong>{metric(activeQueue.callbacks?.success)}</strong></div>
-            <div><span>回调失败</span><strong className={(activeQueue.callbacks?.failure ?? 0) > 0 ? styles.dangerText : undefined}>{metric(activeQueue.callbacks?.failure)}</strong></div>
-            <div><span>任务认领</span><strong>{metric(activeQueue.claims?.claimed)}</strong></div>
-            <div><span>租约恢复</span><strong>{metric(activeQueue.claims?.recovered)}</strong></div>
-          </div>
-        </Card>
-      </section>
+        <Col span={24}>
+          <Card className={styles.detailCard} title={<div className={styles.cardHeading}><Waypoints size={18} /><span><strong>投递生命周期</strong><small>该队列在当前进程中的累计状态变化</small></span></div>}>
+            <Row className={styles.callbackGrid} gutter={[12, 12]}>
+              <Col xs={12} lg={6}><Statistic title="回调成功" value={metric(activeQueue.callbacks?.success)} /></Col>
+              <Col xs={12} lg={6}><Statistic className={(activeQueue.callbacks?.failure ?? 0) > 0 ? styles.dangerStatistic : undefined} title="回调失败" value={metric(activeQueue.callbacks?.failure)} /></Col>
+              <Col xs={12} lg={6}><Statistic title="任务认领" value={metric(activeQueue.claims?.claimed)} /></Col>
+              <Col xs={12} lg={6}><Statistic title="租约恢复" value={metric(activeQueue.claims?.recovered)} /></Col>
+            </Row>
+          </Card>
+        </Col>
+      </Row>
     </>
   ) : (
     <Card className={styles.emptySurface}>
@@ -922,7 +1054,6 @@ const Dashboard: NextPage = () => {
   const renderDeadLetters = () => (
     <>
       <ConsolePageHeader
-        eyebrow="Failure recovery"
         title="死信处理"
         description="按任务代际精确重放；重放失败时保留原始死信记录。"
         meta={<span>entryId 仅用于代际校验，不进入指标标签或应用日志。</span>}
@@ -942,20 +1073,22 @@ const Dashboard: NextPage = () => {
 
       {activeQueue ? (
         <Card className={styles.surfaceCard}>
-          <Alert
-            className={styles.inlineAlert}
-            type={(currentDeadLetters?.total ?? activeQueue.deadLetters ?? 0) > 0 ? 'warning' : 'success'}
-            showIcon
-            message={`${activeQueue.namespace} · ${currentDeadLetters?.total ?? metric(activeQueue.deadLetters)} 条死信`}
-            description="重放会重新进入等待队列，并保留完整的幂等与代际保护。"
-          />
+          <Flex className={styles.deadLetterSummary} align="flex-start" justify="space-between" gap={16} wrap>
+            <div>
+              <Text strong>{activeQueue.namespace}</Text>
+              <Paragraph type="secondary">重放会重新进入等待队列，并保留完整的幂等与代际保护。</Paragraph>
+            </div>
+            <StatusTag tone={(currentDeadLetters?.total ?? activeQueue.deadLetters ?? 0) > 0 ? 'warning' : 'success'}>
+              {currentDeadLetters?.total ?? metric(activeQueue.deadLetters)} 条死信
+            </StatusTag>
+          </Flex>
           <div className={styles.desktopTable}>
             <Table rowKey="entryId" columns={deadLetterColumns} dataSource={currentDeadLetters?.items ?? []} loading={deadLetterLoading} pagination={false} size="small" scroll={{ x: 760 }} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有死信" /> }} />
           </div>
           <div className={styles.mobileDeadLetterList}>
             {(currentDeadLetters?.items ?? []).map((item) => (
               <Card key={item.entryId} size="small" className={styles.deadLetterCard}>
-                <div className={styles.deadLetterHeader}><code>{item.taskId}</code><Tag color="error">{item.reason === 'lease_expired' ? '租约过期' : '回调失败'}</Tag></div>
+                <div className={styles.deadLetterHeader}><code>{item.taskId}</code><StatusTag tone="error">{item.reason === 'lease_expired' ? '租约过期' : '回调失败'}</StatusTag></div>
                 <div className={styles.deadLetterMeta}><span>已重试 {item.retryCount} 次</span><span>{formatTimestamp(item.failedAt)}</span></div>
                 <Button icon={<RotateCcw size={15} />} onClick={() => replayDeadLetter(item)}>重放任务</Button>
               </Card>
@@ -989,46 +1122,51 @@ const Dashboard: NextPage = () => {
     return (
       <>
         <ConsolePageHeader
-          eyebrow="Service health"
           title="服务诊断"
           description="健康探针只报告服务状态；Prometheus 指标由服务端鉴权端点提供。"
           meta={<span>最近检查：{formatTimestamp(health.checkedAt)}</span>}
         />
 
-        <section className={styles.healthGrid} aria-label="服务健康状态">
+        <Row className={styles.healthGrid} gutter={[16, 16]} role="region" aria-label="服务健康状态">
           {probes.map((probe) => (
-            <Card key={probe.key} className={styles.healthCard}>
-              <span className={`${styles.healthIcon} ${probe.ok === false ? styles.healthIconDanger : probe.ok === null ? styles.healthIconUnknown : ''}`}>{probe.icon}</span>
-              <span className={styles.healthCopy}><strong>{probe.title}</strong><small>{probe.path}</small></span>
-              <Badge status={probe.ok === null ? 'default' : probe.ok ? 'success' : 'error'} text={probe.ok === null ? '未知' : probe.ok ? '正常' : '异常'} />
-            </Card>
+            <Col key={probe.key} xs={24} sm={12} xl={6}>
+              <Card className={styles.healthCard}>
+                <span className={`${styles.healthIcon} ${probe.ok === false ? styles.healthIconDanger : probe.ok === null ? styles.healthIconUnknown : ''}`}>{probe.icon}</span>
+                <span className={styles.healthCopy}><strong>{probe.title}</strong><small>{probe.path}</small></span>
+                <Badge status={probe.ok === null ? 'default' : probe.ok ? 'success' : 'error'} text={probe.ok === null ? '未知' : probe.ok ? '正常' : '异常'} />
+              </Card>
+            </Col>
           ))}
-        </section>
+        </Row>
 
-        <section className={styles.diagnosticsGrid}>
-          <Card className={styles.detailCard} title={<div className={styles.cardHeading}><ShieldCheck size={18} /><span><strong>探针契约</strong><small>适用于编排系统与负载均衡器</small></span></div>}>
-            <Descriptions
-              column={1}
-              size="small"
-              items={[
-                { key: 'live', label: 'Liveness', children: <code>/health/live</code> },
-                { key: 'ready', label: 'Readiness', children: <code>/health/ready</code> },
-                { key: 'cache', label: '缓存策略', children: 'readiness 禁止缓存' },
-                { key: 'failure', label: '失败状态', children: '依赖异常时返回 HTTP 503' },
-              ]}
-            />
-          </Card>
+        <Row className={styles.diagnosticsGrid} gutter={[16, 16]}>
+          <Col xs={24} lg={12}>
+            <Card className={styles.detailCard} title={<div className={styles.cardHeading}><ShieldCheck size={18} /><span><strong>探针契约</strong><small>适用于编排系统与负载均衡器</small></span></div>}>
+              <Descriptions
+                column={1}
+                size="small"
+                items={[
+                  { key: 'live', label: 'Liveness', children: <code>/health/live</code> },
+                  { key: 'ready', label: 'Readiness', children: <code>/health/ready</code> },
+                  { key: 'cache', label: '缓存策略', children: 'readiness 禁止缓存' },
+                  { key: 'failure', label: '失败状态', children: '依赖异常时返回 HTTP 503' },
+                ]}
+              />
+            </Card>
+          </Col>
 
-          <Card className={styles.detailCard} title={<div className={styles.cardHeading}><Gauge size={18} /><span><strong>指标契约</strong><small>低基数 Prometheus exposition</small></span></div>}>
-            <div className={styles.contractList}>
-              <div><span>服务端端点</span><code>/metrics</code></div>
-              <div><span>访问方式</span><b>Bearer 鉴权</b></div>
-              <div><span>浏览器代理</span><Tag>不开放</Tag></div>
-              <div><span>Counter 语义</span><b>进程重启清零</b></div>
-            </div>
-            <Alert type="info" showIcon message="多实例聚合请使用 sum(rate())；标签不包含 taskId、token、hookUrl 或异常消息。" />
-          </Card>
-        </section>
+          <Col xs={24} lg={12}>
+            <Card className={styles.detailCard} title={<div className={styles.cardHeading}><Gauge size={18} /><span><strong>指标契约</strong><small>低基数 Prometheus exposition</small></span></div>}>
+              <div className={styles.contractList}>
+                <div><span>服务端端点</span><code>/metrics</code></div>
+                <div><span>访问方式</span><b>Bearer 鉴权</b></div>
+                <div><span>浏览器代理</span><Tag>不开放</Tag></div>
+                <div><span>Counter 语义</span><b>进程重启清零</b></div>
+              </div>
+              <Alert type="info" showIcon message="多实例聚合请使用 sum(rate())；标签不包含 taskId、token、hookUrl 或异常消息。" />
+            </Card>
+          </Col>
+        </Row>
       </>
     );
   };
@@ -1042,7 +1180,7 @@ const Dashboard: NextPage = () => {
       <a className={styles.skipLink} href="#main-content">跳到主要内容</a>
 
       <Layout className={styles.shell} data-product="waitqueue-console">
-        <Sider className={styles.moduleRail} width={72} theme={mode} aria-label="主模块导航">
+        <Sider className={styles.moduleRail} width="var(--ui-rail-width)" theme={mode} aria-label="主模块导航">
           <div className={styles.moduleRailInner}>
             <Tooltip title="WaitQueue" placement="right">
               <button type="button" className={styles.brandMark} aria-label="返回运行总览" onClick={() => setView('overview')}><Boxes size={22} /></button>
@@ -1051,6 +1189,8 @@ const Dashboard: NextPage = () => {
               className={styles.railMenu}
               mode="inline"
               aria-label="运行模块"
+              classNames={{ itemContent: styles.railMenuContent }}
+              styles={RAIL_MENU_STYLES}
               items={menuItems}
               selectedKeys={[view]}
               onClick={({ key }) => setView(key as ViewKey)}
@@ -1069,13 +1209,14 @@ const Dashboard: NextPage = () => {
           </div>
         </Sider>
 
-        <Sider className={styles.contextSidebar} width={256} theme={mode} aria-label="队列目录">{catalog}</Sider>
+        <Sider className={styles.contextSidebar} width="var(--ui-sidebar-width)" theme={mode} aria-label="队列目录">{catalog}</Sider>
 
         <Layout className={styles.mainLayout}>
           <Header className={styles.topbar}>
             <div className={styles.topbarContext}>
               <Button className={styles.mobileMenu} type="text" icon={<MenuIcon size={19} />} aria-label="打开队列目录" onClick={() => setMobileCatalogOpen(true)} />
-              <Breadcrumb items={[{ title: 'WaitQueue' }, { title: VIEW_COPY[view].title }]} />
+              <Text strong>{VIEW_COPY[view].title}</Text>
+              <Text type="secondary" className={styles.topbarDescription}>· {VIEW_COPY[view].description}</Text>
             </div>
             <div className={styles.topbarActions}>
               <span className={styles.updated}>更新于 {formatTimestamp(overview?.generatedAt)}</span>
@@ -1083,7 +1224,6 @@ const Dashboard: NextPage = () => {
               <Tooltip title="刷新运行快照">
                 <Button type="text" icon={<RefreshCw className={refreshing ? styles.spin : undefined} size={17} />} aria-label="刷新运行快照" disabled={refreshing} onClick={() => void refreshAll(true)} />
               </Tooltip>
-              <Button type="primary" icon={<Send size={16} />} aria-label="提交任务" disabled={!activeQueue} onClick={() => openTaskModal(activeQueue ?? undefined)}><span className={styles.actionText}>提交任务</span></Button>
             </div>
           </Header>
 
@@ -1111,16 +1251,12 @@ const Dashboard: NextPage = () => {
                 </>
               )}
 
-              <footer className={styles.footer}>
-                <span>数据源：<code>/waitqueue/admin/overview</code> · 10 秒刷新</span>
-                <span>仅呈现实时快照，不推断历史趋势</span>
-              </footer>
             </div>
           </Content>
         </Layout>
       </Layout>
 
-      <Drawer rootClassName={styles.catalogDrawer} title="队列目录" placement="left" width="min(88vw, 320px)" open={mobileCatalogOpen} onClose={() => setMobileCatalogOpen(false)} styles={{ body: { padding: 0 } }}>{catalog}</Drawer>
+      <Drawer rootClassName={styles.catalogDrawer} title="队列目录" placement="left" size="min(88vw, 320px)" open={mobileCatalogOpen} onClose={() => setMobileCatalogOpen(false)} styles={{ body: { padding: 0 } }}>{catalog}</Drawer>
 
       <Modal rootClassName={styles.consoleModal} title={editingQueueId === null ? '注册队列' : `编辑队列 Q-${String(editingQueueId).padStart(3, '0')}`} width={680} open={queueModalOpen} onCancel={() => setQueueModalOpen(false)} footer={null} destroyOnHidden>
         <Form form={queueForm} layout="vertical" initialValues={DEFAULT_QUEUE_VALUES} onFinish={submitQueue} requiredMark="optional">
