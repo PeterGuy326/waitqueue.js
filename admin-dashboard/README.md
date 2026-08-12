@@ -2,7 +2,7 @@
 
 waitqueue.js 的轻量实时运维控制台。它直接读取后端队列配置、Redis 运行快照和当前进程计数，不使用 mock 数据，也不展示当前系统无法证明的历史趋势。
 
-界面遵循 [fullstack-ai-infra/design-system@9d048faa](https://github.com/fullstack-ai-infra/design-system/tree/9d048faaabe0429a6a8720bfbb31418544237b6b) 的 **Warm Agent Workspace** 视觉契约：暖象牙画布、stone 导航、paper 表面、charcoal 文字和 sage 主操作。布局采用 72px 模块栏、256px 队列上下文栏和 60px 顶栏；表格、表单、抽屉、弹窗及反馈继续由 Ant Design 6 提供。
+界面遵循 [fullstack-ai-infra/design-system@9d048faa](https://github.com/fullstack-ai-infra/design-system/tree/9d048faaabe0429a6a8720bfbb31418544237b6b) 的 **Warm Agent Workspace** 视觉契约：暖象牙画布、stone 导航、paper 表面、charcoal 文字和 sage 主操作。布局采用 72px 模块栏、256px 队列上下文栏和 60px 顶栏；模块与队列导航使用 Ant Design `Menu`，指标和响应式栅格使用 `Row / Col / Card / Statistic`，结构化数据使用 `Table / Descriptions`，表单、抽屉、弹窗及反馈也统一由 Ant Design 6 提供。
 
 设计系统当前尚未发布稳定 npm 版本，且其 React 18 peer contract 与本项目 React 19 不兼容，因此这里使用轻量 semantic adapter 将上游 token 映射到 Ant Design `ConfigProvider`，不引入重复的 Radix、Tailwind 或状态管理运行时。待设计系统正式支持 React 19 后，可直接切换到包依赖。
 
@@ -15,7 +15,7 @@ waitqueue.js 的轻量实时运维控制台。它直接读取后端队列配置�
 3. **死信**：选择队列后分页查看 DLQ；重放前必须二次确认，后端用 `entryId` 校验 generation，避免把已更新的旧记录误重放。
 4. **诊断**：分别查看进程 liveness、MySQL/Redis readiness，并核对 Prometheus 抓取契约。
 
-页面每 10 秒自动刷新，浏览器切到后台时暂停；手动刷新会同时更新队列快照和健康状态。顶栏只有在 liveness 与 readiness 都成功时才显示“服务在线”，依赖异常会显示“依赖异常”。桌面端使用模块栏、固定队列目录和表格，窄屏隐藏目录并通过抽屉选择队列，表格自动切换为卡片；浅色/深色主题共用同一套语义 token。
+页面每 10 秒自动刷新，浏览器切到后台时暂停；手动刷新会同时更新队列快照和健康状态。顶栏只保留服务状态、更新时间和刷新等全局工具；“提交任务”只在明确选中队列后的详情页出现，避免误投。桌面端使用模块栏、固定队列目录和表格，窄屏隐藏目录并通过抽屉选择队列，表格自动切换为卡片；浅色/深色主题共用同一套语义 token。
 
 当前没有任务历史存储，因此页面不会展示吞吐趋势、成功率、平均耗时或任务明细。
 
@@ -104,7 +104,7 @@ Browser
 
 ## 技术与目录
 
-运行时直接依赖只有 Next.js、React、Ant Design、Lucide 图标与 Ant SSR 样式运行时；没有 Ant Design Pro、Redux、Axios、Mock.js、Tailwind、Radix 或图表库。Lucide 与设计系统的图标契约一致，并按组件 tree-shaking。Pages Router 使用 `_document.tsx` 提取 Ant Design CSS-in-JS 样式，避免首屏闪烁；浅色与深色使用独立的 Ant CSS variable scope，避免服务端浅色变量覆盖客户端深色状态。Next 16 的开发与生产构建显式使用 Webpack，以确保 Ant Design 与提取器共享同一个样式上下文；CI 会检查真实 Ant 组件规则、主题隔离和关键暗色文字对比度。
+运行时直接依赖只有 Next.js、React、Ant Design、Lucide 图标与 Ant SSR 样式运行时；没有 Ant Design Pro、Redux、Axios、Mock.js、Tailwind、Radix 或图表库。Lucide 与设计系统的图标契约一致，并按组件 tree-shaking。Pages Router 使用 `_document.tsx` 提取 Ant Design CSS-in-JS 样式，避免首屏闪烁；浅色与深色使用独立的 Ant CSS variable scope，避免服务端浅色变量覆盖客户端深色状态。组件颜色、状态和密度由 `ConfigProvider` Design Token 控制，CSS Module 只负责产品布局、信息密度和响应式，不使用 `!important` 覆盖 Ant 内部样式。Next 16 的开发与生产构建显式使用 Webpack，以确保 Ant Design 与提取器共享同一个样式上下文；CI 会检查真实 Ant 组件规则、CSS Module 引用、主题隔离和关键暗色文字对比度。
 
 ```text
 admin-dashboard/

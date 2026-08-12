@@ -28,15 +28,15 @@
   --ui-ai-foreground: #fbfaff;
   --ui-ai-soft: #ebe7f6;
   --ui-info: #476e84;
-  --ui-info-soft: #e1edf2;
+  --ui-info-soft: #edf6fa;
   --ui-success: #537153;
   --ui-success-strong: #4c694c;
-  --ui-success-soft: #e0eadf;
+  --ui-success-soft: #edf3eb;
   --ui-warning: #8b672b;
   --ui-warning-strong: #805c20;
-  --ui-warning-soft: #f4e8cf;
+  --ui-warning-soft: #fff7e6;
   --ui-danger: #9a4e45;
-  --ui-danger-soft: #f4dfdb;
+  --ui-danger-soft: #fff1f0;
   --ui-overlay: rgb(40 41 37 / 42%);
   --ui-focus: #71866f;
   --ui-selection: #dce6d9;
@@ -73,6 +73,7 @@
   --ui-rail-width: 72px;
   --ui-sidebar-width: 256px;
   --ui-topbar-height: 60px;
+  --ui-topbar-inline: 24px;
 }
 
 :root[data-theme='dark'] {

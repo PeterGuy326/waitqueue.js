@@ -1,6 +1,5 @@
 .shell {
   min-height: 100vh;
-  background: var(--ui-canvas) !important;
 }
 
 .skipLink {
@@ -13,7 +12,7 @@
   background: var(--ui-primary);
   border-radius: 8px;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
   text-decoration: none;
   transform: translateY(-160%);
   transition: transform var(--ui-duration-fast) var(--ui-ease);
@@ -23,16 +22,24 @@
   transform: translateY(0);
 }
 
+.srOnly {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  white-space: nowrap;
+  border: 0;
+  clip-path: inset(50%);
+}
+
 .moduleRail {
-  position: sticky !important;
+  position: sticky;
   z-index: 30;
   top: 0;
   height: 100vh;
-  flex: 0 0 var(--ui-rail-width) !important;
-  min-width: var(--ui-rail-width) !important;
-  max-width: var(--ui-rail-width) !important;
-  width: var(--ui-rail-width) !important;
-  background: var(--ui-navigation) !important;
+  height: 100dvh;
   border-right: 1px solid var(--ui-border);
 }
 
@@ -67,45 +74,16 @@
 .brandMark:hover {
   color: var(--ui-primary-hover);
   box-shadow: var(--ui-shadow-md);
-  transform: translateY(-1px);
 }
 
 .railMenu {
-  width: 100% !important;
-  flex: 1;
-  background: transparent !important;
-  border: 0 !important;
+  min-height: 0;
 }
 
-.railMenu > :global(.ant-menu-item) {
-  display: flex;
-  width: 52px;
-  height: 56px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  margin: 4px 2px !important;
-  padding: 5px 2px !important;
-  line-height: 1;
-}
-
-.railMenu :global(.ant-menu-item .ant-menu-item-icon) {
-  display: inline-grid;
-  min-width: 19px;
-  margin: 0 !important;
-  place-items: center;
-}
-
-.railMenu :global(.ant-menu-title-content) {
-  width: 100%;
-  margin: 0 !important;
-  overflow: visible;
+.railMenuContent {
   font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
-  text-align: center;
-  text-overflow: clip;
 }
 
 .railFooter {
@@ -121,16 +99,12 @@
 }
 
 .contextSidebar {
-  position: sticky !important;
+  position: sticky;
   z-index: 25;
   top: 0;
   height: 100vh;
-  flex: 0 0 var(--ui-sidebar-width) !important;
-  min-width: var(--ui-sidebar-width) !important;
-  max-width: var(--ui-sidebar-width) !important;
-  width: var(--ui-sidebar-width) !important;
+  height: 100dvh;
   overflow: hidden;
-  background: var(--ui-canvas-subtle) !important;
   border-right: 1px solid var(--ui-border);
 }
 
@@ -140,7 +114,6 @@
   min-height: 0;
   flex-direction: column;
   color: var(--ui-foreground);
-  background: var(--ui-canvas-subtle);
 }
 
 .catalogHeader {
@@ -174,7 +147,7 @@
 .catalogHeaderCopy strong {
   overflow: hidden;
   font-size: 14px;
-  font-weight: 680;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -195,11 +168,6 @@
   padding: 16px 14px 10px;
 }
 
-.catalogSearch :global(.ant-input-affix-wrapper) {
-  background: var(--ui-surface-raised);
-  border-color: var(--ui-control-border);
-}
-
 .catalogSearch :global(.ant-input-prefix) {
   color: var(--ui-foreground-subtle);
 }
@@ -211,50 +179,27 @@
   padding: 10px 18px 7px;
   color: var(--ui-foreground-muted);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .queueNav {
-  display: flex;
   min-height: 0;
   flex: 1;
-  flex-direction: column;
-  gap: 3px;
   overflow: auto;
   padding: 0 10px 16px;
   scrollbar-width: thin;
 }
 
-.queueNav > button {
-  display: grid;
-  min-height: 58px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+.queueMenu {
+  min-width: 0;
+}
+
+.queueMenuLabel {
+  display: flex;
+  min-width: 0;
   align-items: center;
-  gap: 10px;
-  padding: 8px 9px;
-  color: var(--ui-foreground-muted);
-  text-align: left;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  cursor: pointer;
-  transition:
-    color var(--ui-duration-fast) var(--ui-ease),
-    background var(--ui-duration-fast) var(--ui-ease),
-    border-color var(--ui-duration-fast) var(--ui-ease),
-    box-shadow var(--ui-duration-fast) var(--ui-ease);
-}
-
-.queueNav > button:hover {
-  color: var(--ui-foreground);
-  background: color-mix(in srgb, var(--ui-surface) 72%, transparent);
-}
-
-.queueNav > button.queueNavActive {
-  color: var(--ui-foreground);
-  background: var(--ui-surface-raised);
-  border-color: var(--ui-control-border);
-  box-shadow: inset 2px 0 var(--ui-primary), var(--ui-shadow-sm);
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .queueAvatar {
@@ -296,7 +241,7 @@
   overflow: hidden;
   color: inherit;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -329,10 +274,7 @@
 }
 
 .catalogEmpty {
-  margin: 28px 10px;
-  color: var(--ui-foreground-muted);
-  font-size: 12px;
-  text-align: center;
+  margin-block: 28px;
 }
 
 .catalogFooter {
@@ -343,19 +285,17 @@
   border-top: 1px solid var(--ui-border);
 }
 
-.catalogFooter > span {
+.catalogFooter > :global(.ant-typography) {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  color: var(--ui-foreground-muted);
   font-size: 12px;
 }
 
 .mainLayout {
   min-width: 0;
   min-height: 100vh;
-  background: var(--ui-canvas) !important;
 }
 
 .topbar {
@@ -367,11 +307,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 0 24px !important;
-  line-height: normal !important;
-  background: color-mix(in srgb, var(--ui-canvas) 90%, transparent) !important;
   border-bottom: 1px solid var(--ui-border);
-  backdrop-filter: blur(14px);
 }
 
 .topbarContext,
@@ -379,14 +315,19 @@
   display: flex;
   min-width: 0;
   align-items: center;
+  line-height: normal;
 }
 
 .topbarContext {
   gap: 8px;
 }
 
-.topbarContext :global(.ant-breadcrumb) {
+.topbarDescription {
+  overflow: hidden;
+  max-width: 420px;
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbarActions {
@@ -398,7 +339,6 @@
   display: inline-flex;
   height: 26px;
   align-items: center;
-  margin: 0;
   padding-inline: 9px;
   border-radius: 999px;
   font-size: 12px;
@@ -412,7 +352,7 @@
 }
 
 .mobileMenu {
-  display: none !important;
+  display: none;
 }
 
 .spin {
@@ -421,7 +361,6 @@
 
 .content {
   min-width: 0;
-  background: var(--ui-canvas) !important;
 }
 
 .page {
@@ -429,7 +368,7 @@
   max-width: 1408px;
   min-height: calc(100vh - var(--ui-topbar-height));
   margin: 0 auto;
-  padding: 40px 32px 24px;
+  padding: 32px 32px 24px;
 }
 
 .alert {
@@ -442,21 +381,15 @@
 .detailCard,
 .queueHealthCard,
 .recoveryCard {
-  border-color: var(--ui-border) !important;
   box-shadow: var(--ui-shadow-sm);
-}
-
-.initialSkeleton {
-  padding: 18px;
-  background: var(--ui-surface) !important;
 }
 
 .pageHeader {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 32px;
-  margin-bottom: 28px;
+  margin-bottom: 22px;
   animation: ui-fade-in var(--ui-duration-normal) var(--ui-ease);
 }
 
@@ -464,28 +397,17 @@
   min-width: 0;
 }
 
-.pageEyebrow {
-  margin-bottom: 8px;
-  color: var(--ui-primary);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.055em;
-  text-transform: uppercase;
-}
-
-.pageHeader h1 {
+.pageTitle {
   margin: 0;
-  color: var(--ui-foreground);
   font-size: clamp(24px, 2.4vw, 26px);
-  font-weight: 680;
+  font-weight: 600;
   letter-spacing: -0.025em;
   line-height: 1.2;
 }
 
-.pageHeaderMain > p {
+.pageDescription {
   max-width: 700px;
   margin: 8px 0 0;
-  color: var(--ui-foreground-muted);
   font-size: 14px;
   line-height: 1.6;
 }
@@ -503,7 +425,6 @@
 .pageMeta :global(.ant-tag) {
   display: inline-flex;
   align-items: center;
-  margin: 0;
   border-radius: 999px;
 }
 
@@ -519,65 +440,38 @@
 }
 
 .metricGrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
   margin-bottom: 16px;
   animation: ui-fade-in var(--ui-duration-normal) var(--ui-ease);
 }
 
+.metricGrid > :global(.ant-col) {
+  display: flex;
+}
+
 .metricCard {
-  position: relative;
+  width: 100%;
+  height: 100%;
   min-width: 0;
-  overflow: hidden;
-  background: var(--ui-surface-raised) !important;
-  border-color: var(--ui-border) !important;
-  border-radius: 14px !important;
+  border-top: 2px solid transparent;
   box-shadow: var(--ui-shadow-sm);
-  transition:
-    transform var(--ui-duration-normal) var(--ui-ease),
-    box-shadow var(--ui-duration-normal) var(--ui-ease);
 }
 
-.metricCard::before {
-  position: absolute;
-  z-index: 1;
-  top: 0;
-  right: 0;
-  left: 0;
-  height: 3px;
-  background: var(--ui-primary);
-  content: '';
+.metricWarning {
+  border-top-color: var(--ui-warning);
 }
 
-.metricCard:hover {
-  box-shadow: var(--ui-shadow-md);
-  transform: translateY(-2px);
-}
-
-.metricWarning::before {
-  background: var(--ui-warning);
-}
-
-.metricDanger::before {
-  background: var(--ui-danger);
+.metricDanger {
+  border-top-color: var(--ui-danger);
 }
 
 .metricCard :global(.ant-card-body) {
   display: flex;
-  min-height: 178px;
+  min-height: 140px;
   flex-direction: column;
-  padding: 20px;
 }
 
-.metricCardHeader {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 20px;
-  color: var(--ui-foreground-muted);
-  font-size: 13px;
-  font-weight: 650;
+.metricCard :global(.ant-statistic-title) {
+  margin-bottom: 12px;
 }
 
 .metricIcon {
@@ -600,13 +494,8 @@
   background: var(--ui-danger-soft);
 }
 
-.metricCard :global(.ant-statistic) {
-  margin-top: auto;
-}
-
 .metricCard :global(.ant-statistic-content) {
-  color: var(--ui-foreground);
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.025em;
 }
 
@@ -617,7 +506,7 @@
   font-weight: 500;
 }
 
-.metricCard > :global(.ant-card-body) > p {
+.metricFooter {
   min-height: 20px;
   margin: 8px 0 0;
   color: var(--ui-foreground-muted);
@@ -629,19 +518,17 @@
 }
 
 .metricCard :global(.ant-btn-link) {
-  align-self: flex-start;
   height: auto;
-  margin-top: 7px;
   padding: 0;
   font-size: 12px;
 }
 
 .overviewGrid {
-  display: grid;
-  grid-template-columns: minmax(0, 2.2fr) minmax(280px, 0.8fr);
-  gap: 16px;
-  align-items: stretch;
   animation: ui-fade-in var(--ui-duration-normal) var(--ui-ease);
+}
+
+.overviewGrid > :global(.ant-col) {
+  display: flex;
 }
 
 .queueHealthCard,
@@ -649,16 +536,8 @@
 .surfaceCard,
 .detailCard,
 .emptySurface {
-  background: var(--ui-surface) !important;
-  border-radius: 14px !important;
-}
-
-.queueHealthCard :global(.ant-card-head),
-.recoveryCard :global(.ant-card-head),
-.detailCard :global(.ant-card-head) {
-  min-height: 66px;
-  padding-inline: 20px;
-  border-bottom-color: var(--ui-border);
+  width: 100%;
+  height: 100%;
 }
 
 .queueHealthCard :global(.ant-card-body) {
@@ -684,7 +563,7 @@
 .cardHeading strong {
   color: var(--ui-foreground);
   font-size: 14px;
-  font-weight: 680;
+  font-weight: 600;
 }
 
 .cardHeading small {
@@ -694,28 +573,6 @@
   font-weight: 400;
 }
 
-.queueHealthCard :global(.ant-tag),
-.queueHealthCard :global(.ant-card-extra) {
-  margin: 0;
-}
-
-.queueHealthCard :global(.ant-table) {
-  background: transparent;
-}
-
-.queueHealthCard :global(.ant-table-container) {
-  border-start-start-radius: 0 !important;
-  border-start-end-radius: 0 !important;
-}
-
-.queueHealthCard :global(.ant-btn-link) {
-  color: var(--ui-primary);
-}
-
-.queueHealthCard :global(.ant-btn-link:hover) {
-  color: var(--ui-primary-hover);
-}
-
 .queueIdentity {
   display: flex;
   min-width: 0;
@@ -723,24 +580,16 @@
   gap: 3px;
 }
 
-.queueIdentity button {
+.queueIdentity :global(.ant-btn-link) {
   overflow: hidden;
   width: fit-content;
+  height: auto;
   max-width: 100%;
   padding: 0;
-  color: var(--ui-foreground);
-  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
   font-size: 13px;
-  font-weight: 650;
-}
-
-.queueIdentity button:hover {
-  color: var(--ui-primary);
+  font-weight: 600;
 }
 
 .queueIdentity span {
@@ -752,7 +601,6 @@
 }
 
 .queueIdentity code,
-.footer code,
 .scheduleList code,
 .contractList code,
 .deadLetterHeader code,
@@ -790,11 +638,11 @@
 }
 
 .warningText {
-  color: var(--ui-warning) !important;
+  color: var(--ui-warning);
 }
 
 .dangerText {
-  color: color-mix(in srgb, var(--ui-danger) 92%, var(--ui-foreground)) !important;
+  color: color-mix(in srgb, var(--ui-danger) 92%, var(--ui-foreground));
 }
 
 .mobileQueueList,
@@ -804,34 +652,43 @@
 
 .recoveryCard :global(.ant-card-body) {
   display: flex;
-  min-height: calc(100% - 66px);
+  min-height: 0;
+  flex: 1;
   flex-direction: column;
   padding: 12px 20px 18px;
 }
 
-.counterList {
+.recoveryCard {
   display: flex;
   flex-direction: column;
 }
 
-.counterList > div {
+.counterList {
+  margin-bottom: 16px;
+}
+
+.counterList > :global(.ant-col) {
   display: flex;
-  min-height: 50px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  border-bottom: 1px solid var(--ui-border);
 }
 
-.counterList span {
-  color: var(--ui-foreground-muted);
-  font-size: 13px;
+.counterList :global(.ant-statistic) {
+  width: 100%;
+  padding: 12px;
+  background: var(--ui-surface-inset);
+  border-radius: 10px;
 }
 
-.counterList strong {
-  color: var(--ui-foreground);
+.counterList :global(.ant-statistic-title) {
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.counterList :global(.ant-statistic-content) {
   font-size: 20px;
-  font-variant-numeric: tabular-nums;
+}
+
+.dangerStatistic :global(.ant-statistic-content) {
+  color: color-mix(in srgb, var(--ui-danger) 92%, var(--ui-foreground));
 }
 
 .counterNote {
@@ -854,14 +711,11 @@
 }
 
 .queueDetailGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
   animation: ui-fade-in var(--ui-duration-normal) var(--ui-ease);
 }
 
-.detailCard :global(.ant-card-body) {
-  padding: 20px;
+.queueDetailGrid > :global(.ant-col) {
+  display: flex;
 }
 
 .capacitySummary {
@@ -920,44 +774,34 @@
   white-space: nowrap;
 }
 
-.lifecycleCard {
-  grid-column: 1 / -1;
-}
-
-.callbackGrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.callbackGrid > div {
+.callbackGrid > :global(.ant-col) {
   display: flex;
-  min-height: 84px;
-  flex-direction: column;
-  justify-content: center;
+}
+
+.callbackGrid :global(.ant-statistic) {
+  width: 100%;
   padding: 14px 16px;
   background: var(--ui-surface-inset);
   border-radius: 10px;
 }
 
-.callbackGrid span {
-  color: var(--ui-foreground-muted);
+.callbackGrid :global(.ant-statistic-title) {
+  margin-bottom: 4px;
   font-size: 12px;
 }
 
-.callbackGrid strong {
-  margin-top: 4px;
-  color: var(--ui-foreground);
+.callbackGrid :global(.ant-statistic-content) {
   font-size: 22px;
-  font-variant-numeric: tabular-nums;
 }
 
-.surfaceCard :global(.ant-card-body) {
-  padding: 20px;
+.deadLetterSummary {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--ui-border);
 }
 
-.inlineAlert {
-  margin-bottom: 18px;
+.deadLetterSummary :global(.ant-typography) {
+  margin: 4px 0 0;
 }
 
 .mobileDeadLetterList {
@@ -966,8 +810,7 @@
 }
 
 .deadLetterCard {
-  background: var(--ui-surface-raised) !important;
-  border-color: var(--ui-border) !important;
+  box-shadow: var(--ui-shadow-sm);
 }
 
 .deadLetterHeader {
@@ -989,7 +832,6 @@
 
 .deadLetterHeader :global(.ant-tag) {
   flex: none;
-  margin: 0;
 }
 
 .deadLetterMeta {
@@ -1008,17 +850,17 @@
 }
 
 .healthGrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
   margin-bottom: 16px;
   animation: ui-fade-in var(--ui-duration-normal) var(--ui-ease);
 }
 
+.healthGrid > :global(.ant-col) {
+  display: flex;
+}
+
 .healthCard {
-  background: var(--ui-surface-raised) !important;
-  border-color: var(--ui-border) !important;
-  border-radius: 14px !important;
+  width: 100%;
+  height: 100%;
   box-shadow: var(--ui-shadow-sm);
 }
 
@@ -1078,10 +920,11 @@
 }
 
 .diagnosticsGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
   animation: ui-fade-in var(--ui-duration-normal) var(--ui-ease);
+}
+
+.diagnosticsGrid > :global(.ant-col) {
+  display: flex;
 }
 
 .contractList {
@@ -1111,26 +954,6 @@
   font-weight: 600;
 }
 
-.contractList :global(.ant-tag) {
-  margin: 0;
-}
-
-.footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  margin-top: 28px;
-  padding: 14px 2px 0;
-  color: var(--ui-foreground-muted);
-  border-top: 1px solid var(--ui-border);
-  font-size: 12px;
-}
-
-.footer code {
-  font-size: 11px;
-}
-
 .formGrid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 180px;
@@ -1150,52 +973,13 @@
   margin-top: 6px;
 }
 
-@media (max-width: 1280px) {
-  .metricGrid,
-  .healthGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .overviewGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .recoveryCard :global(.ant-card-body) {
-    min-height: auto;
-  }
-
-  .counterList {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-
-  .counterList > div {
-    min-height: 74px;
-    align-items: flex-start;
-    flex-direction: column;
-    justify-content: center;
-    gap: 3px;
-    padding: 12px;
-    background: var(--ui-surface-inset);
-    border: 0;
-    border-radius: 10px;
-  }
-}
-
-@media (max-width: 1024px) {
+@media (max-width: 991px) {
   .page {
     padding: 32px 28px 22px;
   }
-}
 
-@media (max-width: 900px) {
-  .contextSidebar {
-    flex-basis: 208px !important;
-    min-width: 208px !important;
-    max-width: 208px !important;
-    width: 208px !important;
+  .shell {
+    --ui-sidebar-width: 208px;
   }
 
   .catalogHeader,
@@ -1208,20 +992,20 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .contextSidebar {
     display: none;
   }
 
   .mobileMenu {
-    display: inline-flex !important;
+    display: inline-flex;
   }
 
-  .moduleRail {
-    flex-basis: 60px !important;
-    min-width: 60px !important;
-    max-width: 60px !important;
-    width: 60px !important;
+  .shell {
+    --ui-rail-width: 60px;
+    --ui-rail-item-width: 50px;
+    --ui-rail-item-height: 50px;
+    --ui-topbar-inline: 14px;
   }
 
   .moduleRailInner {
@@ -1233,26 +1017,15 @@
     height: 44px;
   }
 
-  .railMenu > :global(.ant-menu-item) {
-    width: 50px;
-    height: 50px;
-    margin-inline: 1px !important;
-  }
-
-  .railMenu :global(.ant-menu-title-content) {
+  .railMenuContent {
     position: absolute;
     width: 1px;
     height: 1px;
     padding: 0;
-    margin: -1px !important;
     overflow: hidden;
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border: 0;
-  }
-
-  .topbar {
-    padding: 0 14px !important;
   }
 
   .topbarActions :global(.ant-btn),
@@ -1270,7 +1043,7 @@
 
   .pageActions :global(.ant-select-selector),
   .catalogSearch :global(.ant-input-affix-wrapper) {
-    min-height: 44px !important;
+    min-height: 44px;
   }
 
   .catalogDrawer :global(.ant-drawer-close),
@@ -1287,14 +1060,8 @@
     line-height: 42px;
   }
 
-  .updated,
-  .actionText {
+  .updated {
     display: none;
-  }
-
-  .topbarActions :global(.ant-btn-primary) {
-    width: 38px;
-    padding-inline: 0;
   }
 
   .pageHeader {
@@ -1313,21 +1080,25 @@
     flex: 1;
   }
 
-  .queueDetailGrid,
-  .diagnosticsGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .lifecycleCard {
-    grid-column: auto;
-  }
-
-  .callbackGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
-@media (max-width: 680px) {
+@media (max-width: 575px) {
+  .topbar {
+    gap: 8px;
+  }
+
+  .topbarContext,
+  .topbarActions {
+    gap: 4px;
+  }
+
+  .topbarActions :global(.ant-tag) {
+    width: 28px;
+    justify-content: center;
+    padding-inline: 0;
+    font-size: 0;
+  }
+
   .desktopTable {
     display: none;
   }
@@ -1372,7 +1143,6 @@
 
   .mobileQueueHeader :global(.ant-tag) {
     flex: none;
-    margin: 0;
   }
 
   .mobileQueueMetrics {
@@ -1404,20 +1174,7 @@
     padding: 14px;
   }
 
-  .footer {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 5px;
-  }
-}
-
-@media (max-width: 560px) {
-  .topbarContext :global(.ant-breadcrumb li:first-child),
-  .topbarContext :global(.ant-breadcrumb li:nth-child(2)) {
-    display: none;
-  }
-
-  .topbarActions :global(.ant-tag) {
+  .topbarDescription {
     display: none;
   }
 
@@ -1425,30 +1182,20 @@
     padding: 24px 14px 18px;
   }
 
-  .metricGrid,
-  .healthGrid,
-  .counterList {
-    grid-template-columns: 1fr;
-  }
-
   .metricCard :global(.ant-card-body) {
-    min-height: 160px;
+    min-height: 136px;
   }
 
   .pageHeader {
     margin-bottom: 22px;
   }
 
-  .pageHeader h1 {
+  .pageTitle {
     font-size: 24px;
   }
 
   .pageActions > :global(.ant-btn) {
     flex: 1;
-  }
-
-  .callbackGrid {
-    grid-template-columns: 1fr;
   }
 
   .mobileQueueMetrics {
@@ -1474,7 +1221,7 @@
 
 @media (forced-colors: active) {
   .brandMark,
-  .queueNav > button.queueNavActive,
+  .queueMenu :global(.ant-menu-item-selected),
   .metricCard,
   .healthCard,
   .mobileQueueCard {
